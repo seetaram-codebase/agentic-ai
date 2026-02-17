@@ -25,24 +25,6 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Policy to access Secrets Manager (for JFrog credentials)
-resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
-  count = var.use_jfrog ? 1 : 0
-  name  = "${var.app_name}-secrets-access"
-  role  = aws_iam_role.ecs_task_execution.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid      = "SecretsManagerAccess"
-      Effect   = "Allow"
-      Action   = [
-        "secretsmanager:GetSecretValue"
-      ]
-      Resource = aws_secretsmanager_secret.jfrog_credentials[0].arn
-    }]
-  })
-}
 
 # ECS Task Role (used by the application running in the container)
 resource "aws_iam_role" "ecs_task" {
