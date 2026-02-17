@@ -1,0 +1,72 @@
+# RAG Application Architecture Overview
+
+## Introduction
+
+This document describes the architecture of our scalable RAG (Retrieval-Augmented Generation) application built for enterprise use cases.
+
+## Core Components
+
+### 1. Document Ingestion Pipeline
+
+The document ingestion pipeline handles the following:
+- File upload via REST API or Electron UI
+- Document parsing (PDF, TXT, DOCX support)
+- Text chunking with configurable chunk sizes
+- Embedding generation using Azure OpenAI
+- Vector storage in Chroma or Pinecone
+
+### 2. Vector Database
+
+We support two vector database options:
+
+**Chroma (Local)**
+- Open-source, runs locally
+- Great for development and small-scale deployments
+- Persistent storage with HNSW indexing
+- Zero cost for development
+
+**Pinecone (Cloud)**
+- Managed serverless vector database
+- Scalable to billions of vectors
+- Free tier includes 100K vectors
+- Production-ready with 99.9% SLA
+
+### 3. Azure OpenAI Integration
+
+Our application uses Azure OpenAI for:
+- Text embeddings (text-embedding-ada-002)
+- Chat completions (GPT-4 / GPT-4o)
+- Multi-subscription failover support
+
+### 4. Failover Strategy
+
+The failover mechanism provides high availability:
+- Primary endpoint in East US region
+- Secondary endpoint in West US region
+- Automatic failover on HTTP 429 (rate limit)
+- Automatic failover on HTTP 5xx errors
+- Configurable recovery time (default 60 seconds)
+
+## Performance Characteristics
+
+| Metric | Value |
+|--------|-------|
+| Query latency | 2-3 seconds |
+| Chunk processing | 50 chunks/second |
+| Embedding generation | 100 texts/second |
+| Failover time | <1 second |
+
+## Security Considerations
+
+- API keys stored in environment variables
+- CORS configuration for frontend access
+- No sensitive data logged
+- Support for Azure Managed Identity (production)
+
+## Cost Optimization
+
+To minimize costs:
+1. Use GPT-4o-mini for development
+2. Implement caching for repeated queries
+3. Batch embedding requests
+4. Use Pinecone free tier for demos
