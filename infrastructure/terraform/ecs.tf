@@ -35,96 +35,8 @@ resource "aws_cloudwatch_log_group" "ecs" {
 }
 
 # ============================================
-# Secrets Manager for JFrog Credentials (Optional)
-# ============================================
-resource "aws_secretsmanager_secret" "jfrog_credentials" {
-  count = var.use_jfrog ? 1 : 0
-  name  = "${var.app_name}/jfrog-credentials"
-
-  tags = { Name = "${var.app_name}-jfrog-credentials" }
-}
-
-# ============================================
 # ECS Task Definition
 # ============================================
-
-locals {
-  # Container definition for ECR (no repositoryCredentials)
-  container_definition_ecr = {
-    name  = "backend"
-    image = "${local.container_registry_url}:latest"
-
-    portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
-
-    environment = [
-      { name = "USE_SSM_CONFIG", value = "true" },
-      { name = "USE_DYNAMODB_CONFIG", value = "false" },
-      { name = "APP_NAME", value = var.app_name },
-      { name = "DYNAMODB_CONFIG_TABLE", value = aws_dynamodb_table.config.name },
-      { name = "DYNAMODB_DOCUMENTS_TABLE", value = aws_dynamodb_table.documents.name },
-      { name = "S3_BUCKET", value = aws_s3_bucket.documents.id },
-      { name = "SQS_QUEUE_URL", value = aws_sqs_queue.document_chunking.url },
-      { name = "AWS_REGION", value = var.aws_region }
-    ]
-
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
-        "awslogs-region"        = var.aws_region
-        "awslogs-stream-prefix" = "ecs"
-      }
-    }
-
-    healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval    = 30
-      timeout     = 5
-      retries     = 3
-      startPeriod = 60
-    }
-  }
-
-  # Container definition for JFrog (with repositoryCredentials)
-  container_definition_jfrog = {
-    name  = "backend"
-    image = "${local.container_registry_url}:latest"
-
-    repositoryCredentials = {
-      credentialsParameter = var.use_jfrog ? aws_secretsmanager_secret.jfrog_credentials[0].arn : ""
-    }
-
-    portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
-
-    environment = [
-      { name = "USE_SSM_CONFIG", value = "true" },
-      { name = "USE_DYNAMODB_CONFIG", value = "false" },
-      { name = "APP_NAME", value = var.app_name },
-      { name = "DYNAMODB_CONFIG_TABLE", value = aws_dynamodb_table.config.name },
-      { name = "DYNAMODB_DOCUMENTS_TABLE", value = aws_dynamodb_table.documents.name },
-      { name = "S3_BUCKET", value = aws_s3_bucket.documents.id },
-      { name = "SQS_QUEUE_URL", value = aws_sqs_queue.document_chunking.url },
-      { name = "AWS_REGION", value = var.aws_region }
-    ]
-
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
-        "awslogs-region"        = var.aws_region
-        "awslogs-stream-prefix" = "ecs"
-      }
-    }
-
-    healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval    = 30
-      timeout     = 5
-      retries     = 3
-      startPeriod = 60
-    }
-  }
-}
 
 resource "aws_ecs_task_definition" "backend" {
   family                   = "${var.app_name}-backend"
@@ -136,7 +48,40 @@ resource "aws_ecs_task_definition" "backend" {
   task_role_arn            = aws_iam_role.ecs_task.arn
 
   container_definitions = jsonencode([
-    var.use_jfrog ? local.container_definition_jfrog : local.container_definition_ecr
+    {
+      name  = "backend"
+      image = "${aws_ecr_repository.backend.repository_url}:latest"
+
+      portMappings = [{ containerPort = 8000, hostPort = 8000, protocol = "tcp" }]
+
+      environment = [
+        { name = "USE_SSM_CONFIG", value = "true" },
+        { name = "USE_DYNAMODB_CONFIG", value = "false" },
+        { name = "APP_NAME", value = var.app_name },
+        { name = "DYNAMODB_CONFIG_TABLE", value = aws_dynamodb_table.config.name },
+        { name = "DYNAMODB_DOCUMENTS_TABLE", value = aws_dynamodb_table.documents.name },
+        { name = "S3_BUCKET", value = aws_s3_bucket.documents.id },
+        { name = "SQS_QUEUE_URL", value = aws_sqs_queue.document_chunking.url },
+        { name = "AWS_REGION", value = var.aws_region }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+    }
   ])
 
   tags = { Name = "${var.app_name}-backend-task" }
