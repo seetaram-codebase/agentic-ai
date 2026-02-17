@@ -16,8 +16,3 @@ lambda_embedder_memory  = 1024
 
 log_retention_days = 30
 
-# Container Registry - Using AWS ECR
-use_jfrog          = false
-jfrog_registry_url = ""
-jfrog_repository   = ""
-
