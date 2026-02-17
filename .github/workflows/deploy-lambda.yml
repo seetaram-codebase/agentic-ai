@@ -1,0 +1,97 @@
+name: Deploy Lambda Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lambda/**'
+  workflow_dispatch:
+    inputs:
+      function:
+        description: 'Lambda function to deploy'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - chunker
+          - embedder
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: rag-demo
+
+jobs:
+  deploy-chunker:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.function == 'both' || github.event.inputs.function == 'chunker' || github.event.inputs.function == ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies and package Chunker
+        run: |
+          cd lambda/chunker
+          pip install -r requirements.txt -t package/
+          cp handler.py package/
+          cd package
+          zip -r ../function.zip .
+
+      - name: Deploy Chunker Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.APP_NAME }}-chunker \
+            --zip-file fileb://lambda/chunker/function.zip
+
+      - name: Chunker deployed
+        run: echo "✅ Chunker Lambda deployed" >> $GITHUB_STEP_SUMMARY
+
+  deploy-embedder:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.function == 'both' || github.event.inputs.function == 'embedder' || github.event.inputs.function == ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies and package Embedder
+        run: |
+          cd lambda/embedder
+          pip install -r requirements.txt -t package/
+          cp handler.py package/
+          cd package
+          zip -r ../function.zip .
+
+      - name: Deploy Embedder Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.APP_NAME }}-embedder \
+            --zip-file fileb://lambda/embedder/function.zip
+
+      - name: Embedder deployed
+        run: echo "✅ Embedder Lambda deployed" >> $GITHUB_STEP_SUMMARY

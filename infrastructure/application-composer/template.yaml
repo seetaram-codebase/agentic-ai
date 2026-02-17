@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  RAG Pipeline Architecture - Developer Week Demo
+  Document Processing: S3 → SQS → Lambda (Chunker) → SQS → Lambda (Embedder) → Pinecone
+  Inference: Electron UI → ECS (FastAPI) → Azure OpenAI (Multi-Region Failover)
+
+Metadata:
+  AWS::Composer::Groups:
+    DocumentIngestion:
+      Label: Document Ingestion Pipeline
+      Members:
+        - DocumentsBucket
+        - ChunkingQueue
+        - ChunkerFunction
+        - EmbeddingQueue
+        - EmbedderFunction
+    DataStorage:
+      Label: Data Storage
+      Members:
+        - ConfigTable
+        - DocumentsTable
+    InferenceService:
+      Label: Inference Service
+      Members:
+        - BackendCluster
+        - BackendService
+
+Parameters:
+  AppName:
+    Type: String
+    Default: rag-demo
+    Description: Application name prefix for all resources
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 60
+    MemorySize: 512
+    Environment:
+      Variables:
+        APP_NAME: !Ref AppName
+        ENVIRONMENT: !Ref Environment
+
+Resources:
+  # ============================================
+  # S3: Document Storage
+  # ============================================
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AppName}-documents-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST]
+            AllowedOrigins: ['*']
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt ChunkingQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+      VersioningConfiguration:
+        Status: Enabled
+
+  # ============================================
+  # SQS: Document Chunking Queue
+  # ============================================
+  ChunkingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppName}-chunking-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  ChunkingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppName}-document-chunking
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 86400
+      ReceiveMessageWaitTimeSeconds: 10
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ChunkingDLQ.Arn
+        maxReceiveCount: 3
+
+  ChunkingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ChunkingQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ChunkingQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !GetAtt DocumentsBucket.Arn
+
+  # ============================================
+  # Lambda: Chunker Function
+  # ============================================
+  ChunkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AppName}-chunker
+      Handler: handler.lambda_handler
+      CodeUri: ../../lambda/chunker/
+      Timeout: 60
+      MemorySize: 1024
+      Environment:
+        Variables:
+          DYNAMODB_DOCUMENTS_TABLE: !Ref DocumentsTable
+          EMBEDDING_QUEUE_URL: !Ref EmbeddingQueue
+          S3_BUCKET: !Ref DocumentsBucket
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentsBucket
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt EmbeddingQueue.QueueName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DocumentsTable
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub ${AppName}/*
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ChunkingQueue.Arn
+            BatchSize: 1
+
+  # ============================================
+  # SQS: Embedding Queue
+  # ============================================
+  EmbeddingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppName}-embedding-dlq
+      MessageRetentionPeriod: 1209600
+
+  EmbeddingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AppName}-document-embedding
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 86400
+      ReceiveMessageWaitTimeSeconds: 10
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EmbeddingDLQ.Arn
+        maxReceiveCount: 3
+
+  # ============================================
+  # Lambda: Embedder Function
+  # ============================================
+  EmbedderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AppName}-embedder
+      Handler: handler.lambda_handler
+      CodeUri: ../../lambda/embedder/
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          DYNAMODB_DOCUMENTS_TABLE: !Ref DocumentsTable
+          DYNAMODB_CONFIG_TABLE: !Ref ConfigTable
+          S3_BUCKET: !Ref DocumentsBucket
+          PINECONE_INDEX_NAME: !Sub ${AppName}-index
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DocumentsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ConfigTable
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub ${AppName}/*
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EmbeddingQueue.Arn
+            BatchSize: 10
+
+  # ============================================
+  # DynamoDB: Configuration Table
+  # ============================================
+  ConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AppName}-config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: config_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: config_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ============================================
+  # DynamoDB: Documents Metadata Table
+  # ============================================
+  DocumentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AppName}-documents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: document_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: document_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ============================================
+  # ECS: Backend Service (Inference API)
+  # ============================================
+  BackendCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AppName}-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+
+  # Note: ECS Service and Task Definition are simplified here
+  # The actual deployment uses Terraform with full networking
+
+  # ============================================
+  # ECR: Container Registry
+  # ============================================
+  BackendRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${AppName}-backend
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # ============================================
+  # SSM: Azure OpenAI Configuration
+  # ============================================
+  AzureOpenAIPrimaryEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AppName}/azure-openai/primary/endpoint
+      Type: String
+      Value: "https://your-openai-us-east.openai.azure.com/"
+      Description: Primary Azure OpenAI endpoint (US East)
+
+  AzureOpenAISecondaryEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AppName}/azure-openai/secondary/endpoint
+      Type: String
+      Value: "https://your-openai-eu-west.openai.azure.com/"
+      Description: Secondary Azure OpenAI endpoint (EU West)
+
+Outputs:
+  DocumentsBucketName:
+    Description: S3 bucket for document uploads
+    Value: !Ref DocumentsBucket
+
+  ChunkingQueueUrl:
+    Description: SQS queue for document chunking
+    Value: !Ref ChunkingQueue
+
+  EmbeddingQueueUrl:
+    Description: SQS queue for embedding generation
+    Value: !Ref EmbeddingQueue
+
+  ChunkerFunctionArn:
+    Description: Chunker Lambda function ARN
+    Value: !GetAtt ChunkerFunction.Arn
+
+  EmbedderFunctionArn:
+    Description: Embedder Lambda function ARN
+    Value: !GetAtt EmbedderFunction.Arn
+
+  ECSClusterName:
+    Description: ECS cluster name
+    Value: !Ref BackendCluster
+
+  BackendRepositoryUri:
+    Description: ECR repository URI
+    Value: !GetAtt BackendRepository.RepositoryUri

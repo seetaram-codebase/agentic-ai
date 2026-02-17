@@ -1,0 +1,117 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      registry:
+        description: 'Container registry'
+        required: true
+        default: 'ecr'
+        type: choice
+        options:
+          - ecr
+          - jfrog
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: rag-demo
+  ECS_SERVICE: backend
+  ECS_TASK_DEFINITION: rag-demo-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ECR Login (default)
+      - name: Login to Amazon ECR
+        if: github.event.inputs.registry != 'jfrog'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # JFrog Login (optional)
+      - name: Login to JFrog Artifactory
+        if: github.event.inputs.registry == 'jfrog'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.JFROG_REGISTRY_URL }}
+          username: ${{ secrets.JFROG_USERNAME }}
+          password: ${{ secrets.JFROG_PASSWORD }}
+
+      # Set registry URL based on choice
+      - name: Set Registry URL
+        id: registry
+        run: |
+          if [ "${{ github.event.inputs.registry }}" == "jfrog" ]; then
+            echo "url=${{ secrets.JFROG_REGISTRY_URL }}/${{ secrets.JFROG_REPOSITORY }}/rag-demo-backend" >> $GITHUB_OUTPUT
+          else
+            echo "url=${{ steps.login-ecr.outputs.registry }}/rag-demo-backend" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build, tag, and push image
+        id: build-image
+        env:
+          REGISTRY_URL: ${{ steps.registry.outputs.url }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd backend
+          docker build -t $REGISTRY_URL:$IMAGE_TAG .
+          docker push $REGISTRY_URL:$IMAGE_TAG
+          docker tag $REGISTRY_URL:$IMAGE_TAG $REGISTRY_URL:latest
+          docker push $REGISTRY_URL:latest
+          echo "image=$REGISTRY_URL:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_DEFINITION \
+            --query taskDefinition > task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: backend
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Deployment summary
+        run: |
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** ${{ github.event.inputs.registry || 'ecr' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** ${{ env.ECS_CLUSTER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ${{ env.ECS_SERVICE }}" >> $GITHUB_STEP_SUMMARY
