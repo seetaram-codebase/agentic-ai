@@ -271,7 +271,7 @@ aws logs tail /aws/lambda/rag-demo-embedder --follow --region us-east-1
 
 ### **4. Check Document Status**:
 ```bash
-curl http://54.89.127.74:8000/documents/abc123/status
+curl http://13.222.106.90:8000/documents/abc123/status
 
 # Response:
 {
