@@ -11,20 +11,39 @@ Uses:
 import json
 import os
 import logging
-import boto3
-import urllib.parse
+import sys
 
+# Configure logging first
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Log Python version and environment
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Lambda environment: {os.environ.get('AWS_EXECUTION_ENV', 'unknown')}")
+
+try:
+    import boto3
+    import urllib.parse
+    logger.info("✅ Successfully imported boto3 and urllib")
+except Exception as e:
+    logger.error(f"❌ Failed to import base dependencies: {e}")
+    raise
+
 # AWS Clients
-s3 = boto3.client('s3')
-sqs = boto3.client('sqs')
-dynamodb = boto3.resource('dynamodb')
+try:
+    s3 = boto3.client('s3')
+    sqs = boto3.client('sqs')
+    dynamodb = boto3.resource('dynamodb')
+    logger.info("✅ Successfully initialized AWS clients")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize AWS clients: {e}")
+    raise
 
 # Environment variables
 EMBEDDING_QUEUE_URL = os.environ.get('EMBEDDING_QUEUE_URL', '')
 DOCUMENTS_TABLE = os.environ.get('DYNAMODB_DOCUMENTS_TABLE', 'rag-demo-documents')
+
+logger.info(f"Environment variables: EMBEDDING_QUEUE_URL={EMBEDDING_QUEUE_URL}, DOCUMENTS_TABLE={DOCUMENTS_TABLE}")
 
 
 def lambda_handler(event, context):
@@ -32,43 +51,65 @@ def lambda_handler(event, context):
     Main Lambda handler - chunks documents from S3 via SQS trigger
     Sends chunks to embedding queue for processing
     """
-    logger.info(f"Received event: {json.dumps(event)}")
+    try:
+        logger.info(f"🚀 Lambda handler started")
+        logger.info(f"Received event: {json.dumps(event)}")
+        logger.info(f"Context: {context}")
 
-    processed_count = 0
-    error_count = 0
+        processed_count = 0
+        error_count = 0
 
-    for record in event.get('Records', []):
-        try:
-            # Parse SQS message body (contains S3 event)
-            body = json.loads(record['body'])
+        records = event.get('Records', [])
+        logger.info(f"Processing {len(records)} SQS records")
 
-            for s3_record in body.get('Records', []):
-                bucket = s3_record['s3']['bucket']['name']
-                key = urllib.parse.unquote_plus(s3_record['s3']['object']['key'])
+        if not records:
+            logger.warning("⚠️ No records in event!")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'message': 'No records to process'})
+            }
 
-                logger.info(f"Processing document: s3://{bucket}/{key}")
+        for record in records:
+            try:
+                logger.info(f"Processing record: {json.dumps(record)}")
 
-                # Process the document
-                result = process_document(bucket, key)
+                # Parse SQS message body (contains S3 event)
+                body = json.loads(record['body'])
+                logger.info(f"Parsed SQS body: {json.dumps(body)}")
 
-                if result['success']:
-                    processed_count += 1
-                    logger.info(f"Successfully chunked: {key} into {result['chunks']} chunks")
-                else:
-                    error_count += 1
-                    logger.error(f"Failed to process: {key} - {result['error']}")
+                for s3_record in body.get('Records', []):
+                    bucket = s3_record['s3']['bucket']['name']
+                    key = urllib.parse.unquote_plus(s3_record['s3']['object']['key'])
 
-        except Exception as e:
-            error_count += 1
-            logger.error(f"Error processing record: {str(e)}")
+                    logger.info(f"Processing document: s3://{bucket}/{key}")
 
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'processed': processed_count,
-            'errors': error_count
-        })
-    }
+                    # Process the document
+                    result = process_document(bucket, key)
+
+                    if result['success']:
+                        processed_count += 1
+                        logger.info(f"✅ Successfully chunked: {key} into {result['chunks']} chunks")
+                    else:
+                        error_count += 1
+                        logger.error(f"❌ Failed to process: {key} - {result['error']}")
+
+            except Exception as e:
+                error_count += 1
+                logger.error(f"❌ Error processing record: {str(e)}", exc_info=True)
+
+        logger.info(f"Processing complete: {processed_count} successful, {error_count} errors")
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'processed': processed_count,
+                'errors': error_count
+            })
+        }
+
+    except Exception as e:
+        logger.error(f"❌ FATAL ERROR in lambda_handler: {str(e)}", exc_info=True)
+        raise
 
 
 def process_document(bucket: str, key: str) -> dict:

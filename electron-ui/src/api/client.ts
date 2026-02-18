@@ -3,7 +3,7 @@ import axios from 'axios';
 // Backend API URL - update this when backend endpoint changes
 // For local development: 'http://localhost:8000'
 // For deployed backend: 'http://<ECS-PUBLIC-IP>:8000'
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://54.89.127.74:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://13.222.106.90:8000';
 
 console.log('🔗 API Base URL:', BASE_URL);
 
