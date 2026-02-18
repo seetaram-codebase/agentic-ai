@@ -87,11 +87,8 @@ class AzureOpenAIFailover:
                 api_key=config.api_key,
                 api_version="2024-02-01"
             )
-            self.embedding_clients.append({
-                'client': client,
-                'deployment': config.deployment,
-                'name': f"Embedding ({config.region})"
-            })
+            # Store as tuple for consistency with other init methods
+            self.embedding_clients.append((client, config.deployment, f"Embedding ({config.region})"))
 
         logger.info(f"Loaded configs from SSM: {len(self.configs)} chat, {len(self.embedding_clients)} embedding")
 

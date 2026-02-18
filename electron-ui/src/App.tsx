@@ -63,7 +63,8 @@ function App() {
       for (const file of acceptedFiles) {
         setUploadStatus(`Uploading ${file.name}...`);
         const result: UploadResponse = await api.uploadFile(file);
-        setUploadStatus(`✅ ${file.name}: ${result.chunks_created} chunks created`);
+        setUploadStatus(`✅ ${file.name}: ${result.status} - ${result.message}`);
+        console.log('📤 Upload response:', result);
       }
       refreshStats();
       refreshStatus();
