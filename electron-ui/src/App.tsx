@@ -19,29 +19,37 @@ function App() {
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [error, setError] = useState<string>('');
 
+  console.log('📱 App component rendered');
+
   // Fetch health status and stats on mount
   useEffect(() => {
+    console.log('🔄 App mounted, initializing...');
     refreshStatus();
     refreshStats();
   }, []);
 
   const refreshStatus = async () => {
     try {
+      console.log('🏥 Fetching backend health status...');
       const health = await api.getHealthStatus();
+      console.log('✅ Backend health:', health);
       setStatus(health);
       setError('');
     } catch (e: any) {
-      setError('Cannot connect to backend. Make sure the API is running.');
+      console.warn('⚠️ Cannot connect to backend:', e.message);
+      setError('Backend offline - will retry. You can still use the UI.');
       setStatus(null);
     }
   };
 
   const refreshStats = async () => {
     try {
+      console.log('📊 Fetching stats...');
       const stats = await api.getStats();
+      console.log('✅ Stats:', stats);
       setDocumentCount(stats.vector_store?.document_count || 0);
     } catch (e) {
-      console.error('Error fetching stats:', e);
+      console.warn('⚠️ Error fetching stats:', e);
     }
   };
 
