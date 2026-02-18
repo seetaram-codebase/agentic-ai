@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const BASE_URL = 'http://localhost:8000';
+// Backend API URL - update this when backend endpoint changes
+// For local development: 'http://localhost:8000'
+// For deployed backend: 'http://<ECS-PUBLIC-IP>:8000'
+const BASE_URL = process.env.VITE_API_URL || 'http://54.91.39.84:8000';
 
 const client = axios.create({
   baseURL: BASE_URL,
