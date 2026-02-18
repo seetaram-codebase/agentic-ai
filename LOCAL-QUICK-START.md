@@ -35,8 +35,10 @@ npm run dev
 ## 📋 Prerequisites
 
 ✅ **Python 3.11+** - https://www.python.org/  
-✅ **Node.js 18+** - https://nodejs.org/  
+✅ **Node.js 18+** - https://nodejs.org/ (**includes npm**)  
 ✅ **Azure OpenAI account** - Or OpenAI API key
+
+**Don't have these installed?** Run `scripts\check-prerequisites.bat` to check, or see **`docs\INSTALL-PREREQUISITES.md`** for step-by-step installation instructions.
 
 ---
 
