@@ -42,3 +42,6 @@ build/
 
 # Local notes (may contain secrets)
 notes.txt
+
+# Terraform Lambda placeholder ZIPs
+infrastructure/terraform/*_placeholder.zip

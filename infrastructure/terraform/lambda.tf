@@ -67,11 +67,17 @@ resource "aws_iam_role_policy" "lambda_policy" {
 # Lambda 1: Chunker
 # Uses: RecursiveCharacterTextSplitter, tiktoken, PyPDFLoader
 # ============================================
+
+# Create a minimal placeholder ZIP for initial deployment
+# The actual code with dependencies will be deployed via GitHub Actions
 data "archive_file" "chunker_code" {
   type        = "zip"
-  source_dir  = "${path.module}/../../lambda/chunker"
-  output_path = "${path.module}/chunker.zip"
-  excludes    = ["__pycache__", "*.pyc", "package", "*.zip"]
+  output_path = "${path.module}/chunker_placeholder.zip"
+
+  source {
+    content  = "def lambda_handler(event, context): return {'statusCode': 200, 'body': 'Placeholder - deploy via CI/CD'}"
+    filename = "handler.py"
+  }
 }
 
 resource "aws_lambda_function" "chunker" {
@@ -95,6 +101,13 @@ resource "aws_lambda_function" "chunker" {
   tags = {
     Name = "${var.app_name}-chunker"
   }
+
+  lifecycle {
+    ignore_changes = [
+      source_code_hash,  # Code will be updated via GitHub Actions
+      filename
+    ]
+  }
 }
 
 resource "aws_cloudwatch_log_group" "chunker" {
@@ -113,11 +126,17 @@ resource "aws_lambda_event_source_mapping" "chunker_trigger" {
 # Lambda 2: Embedder
 # Uses: OpenAIEmbeddings (Azure), Chroma vectorstore
 # ============================================
+
+# Create a minimal placeholder ZIP for initial deployment
+# The actual code with dependencies will be deployed via GitHub Actions
 data "archive_file" "embedder_code" {
   type        = "zip"
-  source_dir  = "${path.module}/../../lambda/embedder"
-  output_path = "${path.module}/embedder.zip"
-  excludes    = ["__pycache__", "*.pyc", "package", "*.zip"]
+  output_path = "${path.module}/embedder_placeholder.zip"
+
+  source {
+    content  = "def lambda_handler(event, context): return {'statusCode': 200, 'body': 'Placeholder - deploy via CI/CD'}"
+    filename = "handler.py"
+  }
 }
 
 resource "aws_lambda_function" "embedder" {
@@ -141,6 +160,13 @@ resource "aws_lambda_function" "embedder" {
 
   tags = {
     Name = "${var.app_name}-embedder"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      source_code_hash,  # Code will be updated via GitHub Actions
+      filename
+    ]
   }
 }
 

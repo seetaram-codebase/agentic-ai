@@ -94,11 +94,11 @@ jobs:
         run: terraform plan -var-file=environments/${{ env.TF_VAR_FILE }}.tfvars -no-color -out=tfplan
 
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply' && github.ref == 'refs/heads/main'
+        if: github.event.inputs.action == 'apply'
         run: terraform apply -auto-approve tfplan
 
       - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy' && github.ref == 'refs/heads/main'
+        if: github.event.inputs.action == 'destroy'
         run: terraform destroy -var-file=environments/${{ env.TF_VAR_FILE }}.tfvars -auto-approve
 
       - name: Summary
