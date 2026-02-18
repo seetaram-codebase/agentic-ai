@@ -397,6 +397,49 @@ async def clear_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/embeddings")
+async def store_embedding_api(
+    document_id: str,
+    chunk_index: int,
+    text: str,
+    embedding: List[float],
+    metadata: dict = {}
+):
+    """
+    Store embedding in vector database.
+
+    Called by Embedder Lambda to store embeddings.
+    Lambda can't run ChromaDB (too large), so it calls this API.
+    """
+    try:
+        vector_store = get_vector_store()
+
+        # Store in vector database (ChromaDB/Pinecone)
+        vector_store.add_documents(
+            texts=[text],
+            embeddings=[embedding],
+            metadatas=[{
+                'document_id': document_id,
+                'chunk_index': chunk_index,
+                **metadata
+            }],
+            ids=[f"{document_id}_{chunk_index}"]
+        )
+
+        logger.info(f"Stored embedding for document {document_id}, chunk {chunk_index}")
+        return {"status": "success", "chunk_index": chunk_index, "document_id": document_id}
+
+    except Exception as e:
+        logger.error(f"Error storing embedding: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_vector_store():
+    """Get vector store instance"""
+    from .vector_store import get_vector_store as _get_vector_store
+    return _get_vector_store()
+
+
 # Demo endpoints for failover demonstration
 @app.get("/demo/health-status", response_model=HealthResponse)
 async def get_health_status():

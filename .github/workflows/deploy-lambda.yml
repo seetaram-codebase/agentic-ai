@@ -42,19 +42,32 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install dependencies and package Chunker
+      - name: Install dependencies and package Embedder
         run: |
-          cd lambda/chunker
-          pip install -r requirements.txt -t package/
+          cd lambda/embedder
+          mkdir -p package
+          
+          # Use minimal requirements (no ChromaDB)
+          pip install -r requirements-minimal.txt -t package/ \
+            --platform manylinux2014_x86_64 \
+            --only-binary=:all: \
+            --upgrade
+          
           cp handler.py package/
           cd package
-          zip -r ../function.zip .
+          zip -r9 ../embedder.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*"
+          cd ..
+          
+          # Check size
+          SIZE=$(stat --format=%s embedder.zip 2>/dev/null || stat -f%z embedder.zip 2>/dev/null || echo 0)
+          echo "Package size: $SIZE bytes (~$(($SIZE / 1024 / 1024)) MB)"
 
-      - name: Deploy Chunker Lambda
+      - name: Deploy Embedder Lambda
         run: |
           aws lambda update-function-code \
-            --function-name ${{ env.APP_NAME }}-chunker \
-            --zip-file fileb://lambda/chunker/function.zip
+            --function-name ${{ env.APP_NAME }}-embedder \
+            --zip-file fileb://lambda/embedder/embedder.zip \
+            --region ${{ env.AWS_REGION }}
 
       - name: Chunker deployed
         run: echo "✅ Chunker Lambda deployed" >> $GITHUB_STEP_SUMMARY
@@ -82,16 +95,32 @@ jobs:
       - name: Install dependencies and package Embedder
         run: |
           cd lambda/embedder
-          pip install -r requirements.txt -t package/
+          mkdir -p package
+          
+          # Use minimal requirements (no ChromaDB - use API instead)
+          pip install -r requirements-minimal.txt -t package/ --platform manylinux2014_x86_64 --only-binary=:all:
+          
+          # Copy handler
           cp handler.py package/
+          
+          # Create ZIP
           cd package
-          zip -r ../function.zip .
+          zip -r ../embedder.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*"
+          cd ..
+          
+          # Check size
+          SIZE=$(stat -f%z embedder.zip 2>/dev/null || stat -c%s embedder.zip)
+          echo "Package size: $SIZE bytes"
+          if [ $SIZE -gt 50000000 ]; then
+            echo "Warning: Package is larger than 50MB"
+          fi
 
       - name: Deploy Embedder Lambda
         run: |
           aws lambda update-function-code \
             --function-name ${{ env.APP_NAME }}-embedder \
-            --zip-file fileb://lambda/embedder/function.zip
+            --zip-file fileb://lambda/embedder/embedder.zip \
+            --region ${{ env.AWS_REGION }}
 
       - name: Embedder deployed
         run: echo "✅ Embedder Lambda deployed" >> $GITHUB_STEP_SUMMARY

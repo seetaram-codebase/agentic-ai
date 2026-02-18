@@ -11,6 +11,7 @@ Uses:
 import json
 import os
 import logging
+import time
 import boto3
 import urllib.request
 
@@ -191,13 +192,75 @@ def generate_embedding_direct(text: str) -> list:
 def store_embedding(document_id: str, document_key: str, chunk: dict,
                    embedding: list, embedding_model=None):
     """
-    Store embedding in vector store
+    Store embedding in vector store via API call to ECS backend.
 
-    Based on notebook:
-    vectorstore = Chroma.from_documents(
-        ai_initiative_chunks,
-        embedding_model,
-        collection_name="AI_Initiatives"
+    ChromaDB is too large for Lambda (100+ MB), so we call the backend API
+    which has ChromaDB running in ECS.
+    """
+    import httpx
+
+    # Get backend API URL from environment
+    backend_url = os.environ.get('BACKEND_API_URL', '')
+
+    if backend_url:
+        try:
+            # Call backend API to store embedding
+            response = httpx.post(
+                f"{backend_url}/api/embeddings",
+                json={
+                    'document_id': document_id,
+                    'document_key': document_key,
+                    'chunk_index': chunk['index'],
+                    'text': chunk['text'],
+                    'embedding': embedding,
+                    'metadata': chunk.get('metadata', {})
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 200:
+                logger.info(f"Stored embedding via API for chunk {chunk['index']}")
+                return True
+            else:
+                logger.error(f"API error storing embedding: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error calling backend API: {e}")
+            # Fall back to DynamoDB storage
+            return store_embedding_in_dynamodb(document_id, chunk, embedding)
+    else:
+        # No backend URL, store in DynamoDB
+        logger.info("No BACKEND_API_URL, storing in DynamoDB")
+        return store_embedding_in_dynamodb(document_id, chunk, embedding)
+
+
+def store_embedding_in_dynamodb(document_id: str, chunk: dict, embedding: list):
+    """
+    Fallback: Store embedding directly in DynamoDB.
+
+    Note: This is less efficient than a vector database, but works for small scale.
+    For production, use the backend API which has proper vector DB.
+    """
+    try:
+        table = dynamodb.Table(DOCUMENTS_TABLE)
+
+        # Store embedding with chunk data
+        table.put_item(Item={
+            'document_id': f"{document_id}#chunk#{chunk['index']}",
+            'embedding': embedding,
+            'text': chunk['text'],
+            'metadata': chunk.get('metadata', {}),
+            'chunk_index': chunk['index'],
+            'created_at': int(time.time())
+        })
+
+        logger.info(f"Stored embedding in DynamoDB for chunk {chunk['index']}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error storing in DynamoDB: {e}")
+        return False
     )
     """
 
