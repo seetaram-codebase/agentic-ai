@@ -104,8 +104,39 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Basic health check"""
-    return {"status": "healthy"}
+    """Basic health check - used by Docker and ECS"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "rag-demo-api"
+    }
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness check - verifies dependencies are available"""
+    try:
+        # Check if we can initialize RAG engine (lightweight check)
+        status = {
+            "status": "ready",
+            "timestamp": datetime.utcnow().isoformat(),
+            "checks": {
+                "api": "ok"
+            }
+        }
+
+        # Try to check vector store (optional, may fail if not initialized)
+        try:
+            rag = get_rag()
+            status["checks"]["vector_store"] = "ok"
+        except Exception as e:
+            logger.warning(f"Vector store check failed: {e}")
+            status["checks"]["vector_store"] = "initializing"
+
+        return status
+    except Exception as e:
+        logger.error(f"Readiness check failed: {e}")
+        raise HTTPException(status_code=503, detail="Service not ready")
 
 
 @app.post("/upload", response_model=UploadResponse)

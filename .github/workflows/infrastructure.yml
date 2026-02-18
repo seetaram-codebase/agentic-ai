@@ -28,11 +28,32 @@ on:
         options:
           - dev
           - prod
+  workflow_call:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        type: string
+        default: 'plan'
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+        default: 'dev'
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      TF_API_TOKEN:
+        required: true
 
 env:
   AWS_REGION: us-east-1
   TF_VERSION: '1.7.0'
   TF_VAR_FILE: ${{ github.event.inputs.environment || 'dev' }}
+  TF_CLOUD_ORGANIZATION: "agentic-ai-org"
+  TF_WORKSPACE: "agentic-ai-rag-workspace"
 
 jobs:
   terraform:
@@ -56,6 +77,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: Terraform Format
         run: terraform fmt -check -recursive
