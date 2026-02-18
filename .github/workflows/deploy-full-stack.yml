@@ -1,0 +1,313 @@
+name: Deploy Full Stack
+
+# Master workflow that orchestrates infrastructure, backend, and lambda deployments
+# Use this for complete end-to-end deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      terraform_action:
+        description: 'Terraform action (plan/apply)'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+      deploy_infrastructure:
+        description: 'Deploy infrastructure (Terraform)'
+        required: true
+        type: boolean
+        default: true
+      deploy_backend:
+        description: 'Deploy backend (ECS)'
+        required: true
+        type: boolean
+        default: true
+      deploy_lambdas:
+        description: 'Deploy Lambda functions'
+        required: true
+        type: boolean
+        default: true
+      run_tests:
+        description: 'Run E2E tests after deployment'
+        required: true
+        type: boolean
+        default: true
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: rag-demo
+
+jobs:
+  # Step 1: Deploy Infrastructure with Terraform
+  deploy-infrastructure:
+    name: 🏗️ Deploy Infrastructure
+    if: inputs.deploy_infrastructure
+    uses: ./.github/workflows/infrastructure.yml
+    with:
+      action: ${{ inputs.terraform_action }}
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  # Step 2: Build and Deploy Lambda Functions
+  deploy-lambdas:
+    name: ⚡ Deploy Lambda Functions
+    if: inputs.deploy_lambdas
+    needs: [deploy-infrastructure]
+    # Run even if infrastructure was skipped (when deploy_infrastructure is false)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Deploy Chunker Lambda
+      - name: Package and Deploy Chunker Lambda
+        run: |
+          cd lambda/chunker
+          mkdir -p package
+          pip install -r requirements.txt -t package/
+          cp handler.py package/
+          cd package
+          zip -r ../chunker.zip .
+          cd ..
+          
+          echo "Deploying Chunker Lambda..."
+          aws lambda update-function-code \
+            --function-name ${{ env.APP_NAME }}-chunker \
+            --zip-file fileb://chunker.zip \
+            --region ${{ env.AWS_REGION }}
+
+      # Deploy Embedder Lambda
+      - name: Package and Deploy Embedder Lambda
+        run: |
+          cd lambda/embedder
+          mkdir -p package
+          pip install -r requirements.txt -t package/
+          cp handler.py package/
+          cd package
+          zip -r ../embedder.zip .
+          cd ..
+          
+          echo "Deploying Embedder Lambda..."
+          aws lambda update-function-code \
+            --function-name ${{ env.APP_NAME }}-embedder \
+            --zip-file fileb://embedder.zip \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Lambda deployment summary
+        run: |
+          echo "## ⚡ Lambda Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Chunker Lambda deployed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Embedder Lambda deployed" >> $GITHUB_STEP_SUMMARY
+
+  # Step 3: Build and Deploy Backend to ECS
+  deploy-backend:
+    name: 🚀 Deploy Backend (ECS)
+    if: inputs.deploy_backend
+    needs: [deploy-infrastructure, deploy-lambdas]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: rag-demo-backend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd backend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.APP_NAME }}-backend \
+            --query taskDefinition > task-definition.json
+
+      - name: Update ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: backend
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: backend
+          cluster: ${{ env.APP_NAME }}
+          wait-for-service-stability: true
+
+      - name: Backend deployment summary
+        run: |
+          echo "## 🚀 Backend Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** ${{ env.APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** backend" >> $GITHUB_STEP_SUMMARY
+
+  # Step 4: Run E2E Tests
+  run-e2e-tests:
+    name: 🧪 Run E2E Tests
+    if: inputs.run_tests
+    needs: [deploy-backend]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install test dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Wait for ECS service to stabilize
+        run: |
+          echo "Waiting for ECS service to be stable..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.APP_NAME }} \
+            --services backend \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Get ECS service endpoint
+        id: endpoint
+        run: |
+          TASK_ARN=$(aws ecs list-tasks \
+            --cluster ${{ env.APP_NAME }} \
+            --service-name backend \
+            --query 'taskArns[0]' \
+            --output text)
+          
+          if [ "$TASK_ARN" != "None" ]; then
+            ENI_ID=$(aws ecs describe-tasks \
+              --cluster ${{ env.APP_NAME }} \
+              --tasks $TASK_ARN \
+              --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
+              --output text)
+            
+            PUBLIC_IP=$(aws ec2 describe-network-interfaces \
+              --network-interface-ids $ENI_ID \
+              --query 'NetworkInterfaces[0].Association.PublicIp' \
+              --output text)
+            
+            echo "endpoint=http://${PUBLIC_IP}:8000" >> $GITHUB_OUTPUT
+            echo "Service endpoint: http://${PUBLIC_IP}:8000"
+          fi
+
+      - name: Test health endpoints
+        run: |
+          ENDPOINT="${{ steps.endpoint.outputs.endpoint }}"
+          
+          for i in {1..30}; do
+            if curl -f $ENDPOINT/health; then
+              echo "✅ Health check passed"
+              break
+            fi
+            echo "Waiting for service... ($i/30)"
+            sleep 10
+          done
+          
+          curl -f $ENDPOINT/ready || echo "Ready check returned non-200"
+
+      - name: Run E2E tests
+        run: |
+          cd backend
+          pytest tests/test_e2e.py -v --tb=short
+        env:
+          RUN_AWS_TESTS: "1"
+          RUN_E2E_TESTS: "1"
+          APP_NAME: ${{ env.APP_NAME }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+  # Final Summary
+  deployment-summary:
+    name: 📊 Deployment Summary
+    needs: [deploy-infrastructure, deploy-lambdas, deploy-backend, run-e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Environment: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Infrastructure | ${{ needs.deploy-infrastructure.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lambda Functions | ${{ needs.deploy-lambdas.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend (ECS) | ${{ needs.deploy-backend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| E2E Tests | ${{ needs.run-e2e-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if all succeeded
+          if [ "${{ needs.deploy-infrastructure.result }}" == "success" ] && \
+             [ "${{ needs.deploy-lambdas.result }}" == "success" ] && \
+             [ "${{ needs.deploy-backend.result }}" == "success" ]; then
+            echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Some components failed to deploy**" >> $GITHUB_STEP_SUMMARY
+          fi
+

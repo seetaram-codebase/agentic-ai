@@ -16,14 +16,19 @@ terraform {
     }
   }
 
-  # Uncomment for remote state (recommended for team)
-  # backend "s3" {
-  #   bucket         = "rag-demo-terraform-state"
-  #   key            = "rag-demo/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "terraform-locks"
-  #   encrypt        = true
-  # }
+  # Terraform Cloud Backend
+  # To set up:
+  # 1. Create account at https://app.terraform.io
+  # 2. Create organization and workspace
+  # 3. Add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY as workspace variables
+  # 4. Add TF_API_TOKEN to GitHub Secrets
+  cloud {
+    organization = "agentic-ai-org"
+
+    workspaces {
+      name = "agentic-ai-rag-workspace"
+    }
+  }
 }
 
 provider "aws" {

@@ -1,0 +1,224 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      run_aws_tests:
+        description: 'Run AWS integration tests'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: rag-demo
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          cd backend
+          pytest tests/test_api.py -v --tb=short
+
+  integration-tests:
+    name: Integration Tests (Local)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Start FastAPI server
+        run: |
+          cd backend
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+        env:
+          USE_SSM_CONFIG: "false"
+          USE_DYNAMODB_CONFIG: "false"
+
+      - name: Test health endpoints
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+          curl -f http://localhost:8000/ready || exit 1
+          curl -f http://localhost:8000/ || exit 1
+
+      - name: Run integration tests
+        run: |
+          cd backend
+          pytest tests/test_e2e.py::TestHealthEndpoints -v
+          pytest tests/test_e2e.py::TestErrorHandling -v
+
+  aws-integration-tests:
+    name: AWS Integration Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_aws_tests == 'true' || github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run AWS integration tests
+        run: |
+          cd backend
+          pytest tests/test_e2e.py::TestAWSIntegration -v
+        env:
+          RUN_AWS_TESTS: "1"
+          APP_NAME: ${{ env.APP_NAME }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_aws_tests == 'true'
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    needs: [unit-tests, integration-tests]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Get ECS service endpoint
+        id: ecs-endpoint
+        run: |
+          # Get ECS service details
+          TASK_ARN=$(aws ecs list-tasks --cluster ${{ env.APP_NAME }} --service-name backend --query 'taskArns[0]' --output text)
+          if [ "$TASK_ARN" != "None" ]; then
+            ENI_ID=$(aws ecs describe-tasks --cluster ${{ env.APP_NAME }} --tasks $TASK_ARN --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text)
+            PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI_ID --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+            echo "endpoint=http://${PUBLIC_IP}:8000" >> $GITHUB_OUTPUT
+          else
+            echo "No running tasks found"
+            echo "endpoint=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Test deployed ECS service
+        if: steps.ecs-endpoint.outputs.endpoint != ''
+        run: |
+          ENDPOINT="${{ steps.ecs-endpoint.outputs.endpoint }}"
+          echo "Testing endpoint: $ENDPOINT"
+          
+          # Wait for service to be ready
+          for i in {1..30}; do
+            if curl -f $ENDPOINT/health; then
+              echo "Service is healthy"
+              break
+            fi
+            echo "Waiting for service... ($i/30)"
+            sleep 10
+          done
+          
+          # Run tests against deployed service
+          curl -f $ENDPOINT/health || exit 1
+          curl -f $ENDPOINT/ready || exit 1
+
+      - name: Run full E2E tests
+        run: |
+          cd backend
+          pytest tests/test_e2e.py -v --tb=short
+        env:
+          RUN_E2E_TESTS: "1"
+          RUN_AWS_TESTS: "1"
+          APP_NAME: ${{ env.APP_NAME }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unit Tests:** ${{ needs.unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration Tests:** ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.unit-tests.result }}" == "success" ] && [ "${{ needs.integration-tests.result }}" == "success" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All tests passed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+

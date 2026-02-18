@@ -39,3 +39,6 @@ Thumbs.db
 *.egg-info/
 build/
 
+
+# Local notes (may contain secrets)
+notes.txt
