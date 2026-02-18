@@ -14,10 +14,11 @@ const client = axios.create({
 
 export interface UploadResponse {
   filename: string;
-  chunks_created: number;
   document_id: string;
-  provider: string;
   status: string;
+  message: string;
+  s3_key: string;
+  bucket: string;
 }
 
 export interface QueryResponse {
