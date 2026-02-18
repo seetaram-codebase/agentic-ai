@@ -84,10 +84,30 @@ class QueryResponse(BaseModel):
 
 class UploadResponse(BaseModel):
     filename: str
-    chunks_created: int
     document_id: str
-    provider: str
     status: str
+    message: str
+    s3_key: str
+    bucket: str
+
+
+class DocumentStatus(BaseModel):
+    document_id: str
+    document_key: str
+    status: str  # 'uploaded', 'chunked', 'embedding', 'completed', 'error'
+    chunk_count: int
+    chunks_embedded: int
+    progress: int  # 0-100
+    created_at: int
+    updated_at: int
+
+
+class DocumentListItem(BaseModel):
+    document_id: str
+    document_key: str
+    status: str
+    chunk_count: int
+    created_at: int
 
 
 class HealthResponse(BaseModel):
