@@ -48,6 +48,7 @@ if USE_S3_UPLOAD:
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     logger.info("Starting RAG Demo API...")
+    logger.info("App started successfully - components will initialize on first use")
     yield
     logger.info("Shutting down RAG Demo API...")
 
