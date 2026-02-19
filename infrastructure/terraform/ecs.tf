@@ -66,7 +66,18 @@ resource "aws_ecs_task_definition" "backend" {
         # Pinecone configuration (API key from SSM)
         { name = "PINECONE_API_KEY_PARAM", value = aws_ssm_parameter.pinecone_api_key.name },
         { name = "PINECONE_INDEX", value = var.pinecone_index },
-        { name = "USE_PINECONE", value = var.use_pinecone ? "true" : "false" }
+        { name = "USE_PINECONE", value = var.use_pinecone ? "true" : "false" },
+        # LangSmith observability
+        { name = "LANGCHAIN_TRACING_V2", value = var.langsmith_enabled ? "true" : "false" },
+        { name = "LANGCHAIN_PROJECT", value = var.langsmith_project },
+        { name = "LANGCHAIN_ENDPOINT", value = "https://api.smith.langchain.com" }
+      ]
+
+      secrets = [
+        {
+          name      = "LANGCHAIN_API_KEY"
+          valueFrom = aws_ssm_parameter.langsmith_api_key.arn
+        }
       ]
 
       logConfiguration = {

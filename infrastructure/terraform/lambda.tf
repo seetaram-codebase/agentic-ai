@@ -162,6 +162,11 @@ resource "aws_lambda_function" "embedder" {
       AZURE_REGION_PRIMARY     = "us-east"
       AZURE_REGION_FAILOVER    = "eu-west"
       AZURE_OPENAI_API_VERSION = "2024-02-01"
+      # LangSmith observability
+      LANGCHAIN_TRACING_V2     = var.langsmith_enabled ? "true" : "false"
+      LANGCHAIN_API_KEY        = var.langsmith_enabled ? data.aws_ssm_parameter.langsmith_api_key[0].value : ""
+      LANGCHAIN_PROJECT        = var.langsmith_project
+      LANGCHAIN_ENDPOINT       = "https://api.smith.langchain.com"
     }
   }
 

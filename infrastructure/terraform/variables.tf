@@ -83,3 +83,15 @@ variable "use_pinecone" {
   default     = true
 }
 
+# LangSmith observability settings
+variable "langsmith_enabled" {
+  description = "Enable LangSmith tracing"
+  type        = bool
+  default     = true
+}
+
+variable "langsmith_project" {
+  description = "LangSmith project name"
+  type        = string
+  default     = "rag-demo"
+}

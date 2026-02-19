@@ -195,3 +195,25 @@ resource "aws_ssm_parameter" "pinecone_environment" {
   }
 }
 
+# ============================================
+# LangSmith Observability Configuration
+# ============================================
+
+resource "aws_ssm_parameter" "langsmith_api_key" {
+  name  = "/${var.app_name}/langsmith/api-key"
+  type  = "SecureString"
+  value = "REPLACE_WITH_YOUR_LANGSMITH_API_KEY"  # Update via AWS Console or CLI
+
+  tags = { Name = "${var.app_name}-langsmith-api-key" }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Data source to read LangSmith API key (for Lambda)
+data "aws_ssm_parameter" "langsmith_api_key" {
+  count = var.langsmith_enabled ? 1 : 0
+  name  = aws_ssm_parameter.langsmith_api_key.name
+  depends_on = [aws_ssm_parameter.langsmith_api_key]
+}
