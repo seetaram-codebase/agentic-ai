@@ -1,0 +1,51 @@
+# ============================================
+# Terraform Variables Configuration Example
+# ============================================
+# Copy this file to terraform.tfvars and fill in your values
+# DO NOT commit terraform.tfvars to Git (it's in .gitignore)
+
+# AWS Configuration
+aws_region  = "us-east-1"
+environment = "dev"
+app_name    = "rag-demo"
+
+# ECS Configuration
+ecs_cpu           = 512
+ecs_memory        = 1024
+ecs_desired_count = 1
+
+# Lambda Configuration
+lambda_chunker_timeout  = 60
+lambda_chunker_memory   = 512
+lambda_embedder_timeout = 30
+lambda_embedder_memory  = 512
+
+# Logging
+log_retention_days = 7
+
+# ============================================
+# Pinecone Configuration
+# ============================================
+# Pinecone API key is stored in AWS SSM Parameter Store (like Azure OpenAI keys)
+# This is more secure than storing in terraform.tfvars
+
+# To enable Pinecone:
+# 1. Create Pinecone account at https://www.pinecone.io/
+# 2. Get your API key
+# 3. Create index: rag-demo, dimension 1536, metric cosine
+# 4. Store API key in SSM:
+#
+#    aws ssm put-parameter \
+#      --name "/rag-demo/pinecone/api-key" \
+#      --value "YOUR_PINECONE_API_KEY" \
+#      --type "SecureString" \
+#      --region us-east-1
+#
+# 5. Enable Pinecone below:
+
+# use_pinecone  = true
+# pinecone_index = "rag-demo"
+
+# Note: The SSM parameter is created by Terraform with placeholder value.
+# You must update it manually via AWS Console or CLI with your real API key.
+

@@ -9,6 +9,34 @@ from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
+# Initialize boto3 for SSM access (only if in AWS environment)
+_ssm_client = None
+try:
+    import boto3
+    _ssm_client = boto3.client('ssm')
+except Exception as e:
+    logger.warning(f"AWS SDK not available, SSM disabled: {e}")
+
+
+def get_pinecone_api_key_from_ssm() -> Optional[str]:
+    """Get Pinecone API key from SSM Parameter Store"""
+    param_name = os.getenv("PINECONE_API_KEY_PARAM")
+
+    if not param_name:
+        # Fallback to direct env var (for local development)
+        return os.getenv("PINECONE_API_KEY")
+
+    if not _ssm_client:
+        logger.error("SSM client not available")
+        return None
+
+    try:
+        response = _ssm_client.get_parameter(Name=param_name, WithDecryption=True)
+        return response['Parameter']['Value']
+    except Exception as e:
+        logger.error(f"Failed to get Pinecone API key from SSM: {e}")
+        return None
+
 
 class VectorStore(ABC):
     """Abstract base class for vector stores"""
@@ -261,9 +289,10 @@ def get_vector_store() -> VectorStore:
         use_pinecone = os.getenv("USE_PINECONE", "false").lower() == "true"
 
         if use_pinecone:
-            api_key = os.getenv("PINECONE_API_KEY")
+            # Get API key from SSM or environment variable
+            api_key = get_pinecone_api_key_from_ssm()
             if not api_key:
-                raise ValueError("PINECONE_API_KEY environment variable not set")
+                raise ValueError("Pinecone API key not available from SSM or environment")
 
             _vector_store = PineconeVectorStore(
                 api_key=api_key,

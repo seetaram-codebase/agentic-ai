@@ -62,7 +62,11 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "DYNAMODB_DOCUMENTS_TABLE", value = aws_dynamodb_table.documents.name },
         { name = "S3_BUCKET", value = aws_s3_bucket.documents.id },
         { name = "SQS_QUEUE_URL", value = aws_sqs_queue.document_chunking.url },
-        { name = "AWS_REGION", value = var.aws_region }
+        { name = "AWS_REGION", value = var.aws_region },
+        # Pinecone configuration (API key from SSM)
+        { name = "PINECONE_API_KEY_PARAM", value = aws_ssm_parameter.pinecone_api_key.name },
+        { name = "PINECONE_INDEX", value = var.pinecone_index },
+        { name = "USE_PINECONE", value = var.use_pinecone ? "true" : "false" }
       ]
 
       logConfiguration = {

@@ -69,3 +69,17 @@ variable "log_retention_days" {
   type        = number
   default     = 7
 }
+
+# Pinecone settings
+variable "pinecone_index" {
+  description = "Pinecone index name"
+  type        = string
+  default     = "rag-demo"
+}
+
+variable "use_pinecone" {
+  description = "Enable Pinecone vector storage"
+  type        = bool
+  default     = true
+}
+

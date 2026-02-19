@@ -20,6 +20,7 @@ logger.setLevel(logging.INFO)
 
 # AWS Clients
 dynamodb = boto3.resource('dynamodb')
+ssm = boto3.client('ssm')
 
 # Environment variables
 CONFIG_TABLE = os.environ.get('DYNAMODB_CONFIG_TABLE', 'rag-demo-config')
@@ -27,6 +28,25 @@ DOCUMENTS_TABLE = os.environ.get('DYNAMODB_DOCUMENTS_TABLE', 'rag-demo-documents
 VECTOR_STORE_API_URL = os.environ.get('VECTOR_STORE_API_URL', '')  # ECS backend URL
 USE_CHROMA = os.environ.get('USE_CHROMA', 'true').lower() == 'true'
 CHROMA_PERSIST_DIR = os.environ.get('CHROMA_PERSIST_DIR', '/tmp/chroma_db')
+
+# Pinecone configuration
+PINECONE_API_KEY_PARAM = os.environ.get('PINECONE_API_KEY_PARAM', '')
+PINECONE_INDEX = os.environ.get('PINECONE_INDEX', 'rag-demo')
+USE_PINECONE = os.environ.get('USE_PINECONE', 'false').lower() == 'true'
+
+
+def get_pinecone_api_key():
+    """Get Pinecone API key from SSM Parameter Store"""
+    if not PINECONE_API_KEY_PARAM:
+        logger.warning("PINECONE_API_KEY_PARAM not set, Pinecone storage disabled")
+        return None
+
+    try:
+        response = ssm.get_parameter(Name=PINECONE_API_KEY_PARAM, WithDecryption=True)
+        return response['Parameter']['Value']
+    except Exception as e:
+        logger.error(f"Failed to get Pinecone API key from SSM: {e}")
+        return None
 
 
 def lambda_handler(event, context):
@@ -261,31 +281,7 @@ def store_embedding_in_dynamodb(document_id: str, chunk: dict, embedding: list):
     except Exception as e:
         logger.error(f"Error storing in DynamoDB: {e}")
         return False
-    )
-    """
 
-    if USE_CHROMA and embedding_model:
-        # Option 1: Store directly in Chroma (like notebook)
-        try:
-            store_to_chroma(document_id, document_key, chunk, embedding, embedding_model)
-            return
-        except Exception as e:
-            logger.warning(f"Chroma storage failed: {str(e)}, trying API fallback")
-
-    if VECTOR_STORE_API_URL:
-        # Option 2: Send to ECS backend API
-        try:
-            store_via_api(document_id, document_key, chunk, embedding)
-            return
-        except Exception as e:
-            logger.error(f"API storage failed: {str(e)}")
-
-    # Option 3: Store to Pinecone
-    try:
-        store_to_pinecone(document_id, document_key, chunk, embedding)
-    except Exception as e:
-        logger.warning(f"Pinecone storage failed: {str(e)}")
-        logger.info(f"Embedding generated for {document_key} chunk {chunk['index']} (storage pending)")
 
 
 def store_to_chroma(document_id: str, document_key: str, chunk: dict,
@@ -297,7 +293,7 @@ def store_to_chroma(document_id: str, document_key: str, chunk: dict,
     vectorstore = Chroma.from_documents(chunks, embedding_model, collection_name="...")
     """
     from langchain_community.vectorstores import Chroma
-    from langchain.schema import Document
+    from langchain_core.documents import Document
 
     # Create a Document object (LangChain format)
     doc = Document(
@@ -351,8 +347,14 @@ def store_to_pinecone(document_id: str, document_key: str, chunk: dict, embeddin
     """Store embedding directly to Pinecone"""
     from pinecone import Pinecone
 
-    pc = Pinecone(api_key=os.environ.get('PINECONE_API_KEY'))
-    index = pc.Index(os.environ.get('PINECONE_INDEX', 'rag-demo'))
+    # Get API key from SSM
+    api_key = get_pinecone_api_key()
+    if not api_key:
+        logger.error("Pinecone API key not available")
+        return
+
+    pc = Pinecone(api_key=api_key)
+    index = pc.Index(PINECONE_INDEX)
 
     vector_id = f"{document_id}_{chunk['index']}"
 

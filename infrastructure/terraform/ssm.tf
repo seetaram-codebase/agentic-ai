@@ -150,3 +150,40 @@ resource "aws_ssm_parameter" "azure_embedding_deployment_2" {
     ignore_changes = [value]
   }
 }
+
+# ============================================
+# Pinecone Configuration
+# ============================================
+
+resource "aws_ssm_parameter" "pinecone_api_key" {
+  name  = "/${var.app_name}/pinecone/api-key"
+  type  = "SecureString"
+  value = "REPLACE_WITH_REAL_PINECONE_KEY"  # Update via AWS Console or CLI
+
+  tags = { Name = "${var.app_name}-pinecone-key" }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "aws_ssm_parameter" "pinecone_index" {
+  name  = "/${var.app_name}/pinecone/index-name"
+  type  = "String"
+  value = var.pinecone_index
+
+  tags = { Name = "${var.app_name}-pinecone-index" }
+}
+
+resource "aws_ssm_parameter" "pinecone_environment" {
+  name  = "/${var.app_name}/pinecone/environment"
+  type  = "String"
+  value = "us-east-1"
+
+  tags = { Name = "${var.app_name}-pinecone-env" }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+

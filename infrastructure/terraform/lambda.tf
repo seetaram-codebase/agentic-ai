@@ -155,6 +155,10 @@ resource "aws_lambda_function" "embedder" {
       DYNAMODB_DOCUMENTS_TABLE = aws_dynamodb_table.documents.name
       USE_CHROMA               = "true"
       CHROMA_PERSIST_DIR       = "/tmp/chroma_db"
+      # Pinecone configuration (API key from SSM)
+      PINECONE_API_KEY_PARAM   = aws_ssm_parameter.pinecone_api_key.name
+      PINECONE_INDEX           = var.pinecone_index
+      USE_PINECONE             = var.use_pinecone ? "true" : "false"
     }
   }
 
