@@ -60,20 +60,46 @@ jobs:
           cd lambda/chunker
           mkdir -p package
           
-          # Use minimal requirements for smaller package
+          echo "Installing dependencies..."
           pip install -r requirements-minimal.txt -t package/ \
             --platform manylinux2014_x86_64 \
             --only-binary=:all: \
-            --upgrade
+            --upgrade \
+            --no-cache-dir
           
+          echo "Cleaning up to reduce size..."
+          # Remove unnecessary files to reduce package size
+          find package -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find package -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find package -type f -name "*.pyc" -delete 2>/dev/null || true
+          find package -type f -name "*.pyo" -delete 2>/dev/null || true
+          find package -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
+          find package -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
+          
+          # Remove large unnecessary files
+          rm -rf package/boto3* package/botocore* package/s3transfer* 2>/dev/null || true
+          
+          echo "Copying handler..."
           cp handler.py package/
+          
+          echo "Creating ZIP..."
           cd package
-          zip -r9 ../chunker.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*"
+          zip -r9 ../chunker.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*" -x "tests/*"
           cd ..
           
-          # Check size
+          # Check size and fail if too large
           SIZE=$(stat --format=%s chunker.zip 2>/dev/null || stat -f%z chunker.zip 2>/dev/null || echo 0)
-          echo "Package size: $SIZE bytes (~$(($SIZE / 1024 / 1024)) MB)"
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "Package size: $SIZE bytes (~${SIZE_MB} MB)"
+          
+          if [ $SIZE -gt 50000000 ]; then
+            echo "❌ ERROR: Package is too large (${SIZE_MB}MB > 50MB)"
+            echo "Package contents:"
+            unzip -l chunker.zip | head -50
+            exit 1
+          else
+            echo "✅ Package size OK (${SIZE_MB}MB < 50MB)"
+          fi
 
       - name: Deploy Chunker Lambda
         run: |
@@ -117,22 +143,42 @@ jobs:
           cd lambda/embedder
           mkdir -p package
           
-          # Use minimal requirements (no ChromaDB - use API instead)
-          pip install -r requirements-minimal.txt -t package/ --platform manylinux2014_x86_64 --only-binary=:all:
+          echo "Installing dependencies..."
+          pip install -r requirements-minimal.txt -t package/ \
+            --platform manylinux2014_x86_64 \
+            --only-binary=:all: \
+            --no-cache-dir
           
-          # Copy handler
+          echo "Cleaning up to reduce size..."
+          # Remove unnecessary files
+          find package -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find package -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find package -type f -name "*.pyc" -delete 2>/dev/null || true
+          find package -type f -name "*.pyo" -delete 2>/dev/null || true
+          find package -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
+          find package -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
+          
+          # Remove boto3/botocore (available in Lambda runtime)
+          rm -rf package/boto3* package/botocore* package/s3transfer* 2>/dev/null || true
+          
+          echo "Copying handler..."
           cp handler.py package/
           
-          # Create ZIP
+          echo "Creating ZIP..."
           cd package
-          zip -r ../embedder.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*"
+          zip -r ../embedder.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*" -x "tests/*"
           cd ..
           
           # Check size
           SIZE=$(stat -f%z embedder.zip 2>/dev/null || stat -c%s embedder.zip)
-          echo "Package size: $SIZE bytes"
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "Package size: $SIZE bytes (~${SIZE_MB}MB)"
+          
           if [ $SIZE -gt 50000000 ]; then
-            echo "Warning: Package is larger than 50MB"
+            echo "❌ WARNING: Package is larger than 50MB (${SIZE_MB}MB)"
+            unzip -l embedder.zip | head -50
+          else
+            echo "✅ Package size OK (${SIZE_MB}MB < 50MB)"
           fi
 
       - name: Deploy Embedder Lambda
