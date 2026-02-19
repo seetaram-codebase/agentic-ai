@@ -25,9 +25,6 @@ ssm = boto3.client('ssm')
 # Environment variables
 CONFIG_TABLE = os.environ.get('DYNAMODB_CONFIG_TABLE', 'rag-demo-config')
 DOCUMENTS_TABLE = os.environ.get('DYNAMODB_DOCUMENTS_TABLE', 'rag-demo-documents')
-VECTOR_STORE_API_URL = os.environ.get('VECTOR_STORE_API_URL', '')  # ECS backend URL
-USE_CHROMA = os.environ.get('USE_CHROMA', 'true').lower() == 'true'
-CHROMA_PERSIST_DIR = os.environ.get('CHROMA_PERSIST_DIR', '/tmp/chroma_db')
 
 # Pinecone configuration
 PINECONE_API_KEY_PARAM = os.environ.get('PINECONE_API_KEY_PARAM', '')
@@ -313,135 +310,22 @@ def generate_embedding_direct(text: str) -> list:
 def store_embedding(document_id: str, document_key: str, chunk: dict,
                    embedding: list, embedding_model=None):
     """
-    Store embedding in vector store via API call to ECS backend.
-
-    ChromaDB is too large for Lambda (100+ MB), so we call the backend API
-    which has ChromaDB running in ECS.
+    Store embedding in Pinecone vector database
     """
-    import httpx
+    if not USE_PINECONE:
+        logger.error("Pinecone is disabled - cannot store embeddings")
+        return False
 
-    # Get backend API URL from environment
-    backend_url = os.environ.get('BACKEND_API_URL', '')
-
-    if backend_url:
-        try:
-            # Call backend API to store embedding
-            response = httpx.post(
-                f"{backend_url}/api/embeddings",
-                json={
-                    'document_id': document_id,
-                    'document_key': document_key,
-                    'chunk_index': chunk['index'],
-                    'text': chunk['text'],
-                    'embedding': embedding,
-                    'metadata': chunk.get('metadata', {})
-                },
-                timeout=30.0
-            )
-
-            if response.status_code == 200:
-                logger.info(f"Stored embedding via API for chunk {chunk['index']}")
-                return True
-            else:
-                logger.error(f"API error storing embedding: {response.status_code}")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error calling backend API: {e}")
-            # Fall back to DynamoDB storage
-            return store_embedding_in_dynamodb(document_id, chunk, embedding)
-    else:
-        # No backend URL, store in DynamoDB
-        logger.info("No BACKEND_API_URL, storing in DynamoDB")
-        return store_embedding_in_dynamodb(document_id, chunk, embedding)
-
-
-def store_embedding_in_dynamodb(document_id: str, chunk: dict, embedding: list):
-    """
-    Fallback: Store embedding directly in DynamoDB.
-
-    Note: This is less efficient than a vector database, but works for small scale.
-    For production, use the backend API which has proper vector DB.
-    """
     try:
-        table = dynamodb.Table(DOCUMENTS_TABLE)
-
-        # Store embedding with chunk data
-        table.put_item(Item={
-            'document_id': f"{document_id}#chunk#{chunk['index']}",
-            'embedding': embedding,
-            'text': chunk['text'],
-            'metadata': chunk.get('metadata', {}),
-            'chunk_index': chunk['index'],
-            'created_at': int(time.time())
-        })
-
-        logger.info(f"Stored embedding in DynamoDB for chunk {chunk['index']}")
+        logger.info(f"Storing embedding in Pinecone for chunk {chunk['index']}")
+        store_to_pinecone(document_id, document_key, chunk, embedding)
+        logger.info(f"✅ Stored embedding in Pinecone for chunk {chunk['index']}")
         return True
-
     except Exception as e:
-        logger.error(f"Error storing in DynamoDB: {e}")
+        logger.error(f"Error storing in Pinecone: {e}")
         return False
 
 
-
-def store_to_chroma(document_id: str, document_key: str, chunk: dict,
-                   embedding: list, embedding_model):
-    """
-    Store embedding directly to Chroma vectorstore
-
-    Based on notebook:
-    vectorstore = Chroma.from_documents(chunks, embedding_model, collection_name="...")
-    """
-    from langchain_community.vectorstores import Chroma
-    from langchain_core.documents import Document
-
-    # Create a Document object (LangChain format)
-    doc = Document(
-        page_content=chunk['text'],
-        metadata={
-            'document_id': document_id,
-            'document_key': document_key,
-            'chunk_index': chunk['index'],
-            'source': chunk.get('metadata', {}).get('source', ''),
-            'page': chunk.get('metadata', {}).get('page', 0)
-        }
-    )
-
-    # Add to Chroma vectorstore
-    # Using persistent storage with collection per document
-    vectorstore = Chroma(
-        collection_name="rag_documents",
-        embedding_function=embedding_model,
-        persist_directory=CHROMA_PERSIST_DIR
-    )
-
-    # Add the document with its pre-computed embedding
-    vectorstore.add_documents([doc])
-
-    logger.info(f"Stored chunk {chunk['index']} in Chroma for {document_key}")
-
-
-def store_via_api(document_id: str, document_key: str, chunk: dict, embedding: list):
-    """Store embedding via ECS backend API"""
-    data = json.dumps({
-        'document_id': document_id,
-        'document_key': document_key,
-        'chunk_index': chunk['index'],
-        'chunk_text': chunk['text'],
-        'embedding': embedding,
-        'metadata': chunk.get('metadata', {})
-    }).encode('utf-8')
-
-    req = urllib.request.Request(
-        f"{VECTOR_STORE_API_URL}/internal/store-embedding",
-        data=data
-    )
-    req.add_header('Content-Type', 'application/json')
-
-    with urllib.request.urlopen(req, timeout=30) as response:
-        result = json.loads(response.read().decode('utf-8'))
-        logger.info(f"Stored embedding via API: {result}")
 
 
 def store_to_pinecone(document_id: str, document_key: str, chunk: dict, embedding: list):

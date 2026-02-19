@@ -153,8 +153,6 @@ resource "aws_lambda_function" "embedder" {
     variables = {
       DYNAMODB_CONFIG_TABLE    = aws_dynamodb_table.config.name
       DYNAMODB_DOCUMENTS_TABLE = aws_dynamodb_table.documents.name
-      USE_CHROMA               = "true"
-      CHROMA_PERSIST_DIR       = "/tmp/chroma_db"
       APP_NAME                 = var.app_name
       # Pinecone configuration (API key from SSM)
       PINECONE_API_KEY_PARAM   = aws_ssm_parameter.pinecone_api_key.name
