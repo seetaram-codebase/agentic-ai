@@ -1,17 +1,12 @@
 # Lambda Embedder Dependencies - Optimized
-# ChromaDB is too large for Lambda, use API calls to ECS backend instead
 
 # AWS SDK (available in Lambda runtime)
 boto3
 
-# LangChain for embeddings and vector stores
+# LangChain for embeddings
 langchain-core
 langchain-openai
-langchain-community
 
-# HTTP client for calling vector store API
-httpx
-
-# Pinecone for vector storage (optional)
-pinecone-client
+# Pinecone for vector storage
+pinecone
 

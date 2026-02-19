@@ -58,6 +58,9 @@ def lambda_handler(event, context):
     Main Lambda handler - generates embeddings for chunks via SQS trigger
     Uses OpenAIEmbeddings (text-embedding-ada-002) as per notebook
     """
+    logger.info(f"🚀 Lambda handler started")
+    logger.info(f"Received event: {json.dumps(event)}")
+    logger.info(f"Context: {context}")
     logger.info(f"Received {len(event.get('Records', []))} records")
 
     processed_count = 0
@@ -83,8 +86,11 @@ def lambda_handler(event, context):
 
     for record in event.get('Records', []):
         try:
+            logger.info(f"Processing record: {json.dumps(record)}")
+
             # Parse SQS message body
             body = json.loads(record['body'])
+            logger.info(f"Parsed SQS body: {json.dumps(body)}")
 
             document_id = body['document_id']
             document_key = body['document_key']
