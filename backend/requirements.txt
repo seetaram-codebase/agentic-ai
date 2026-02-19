@@ -14,6 +14,7 @@ langchain-text-splitters==0.0.1
 
 # Vector Store - Updated compatible version
 chromadb==0.4.24
+pinecone==3.0.3
 
 # OpenAI
 openai==1.30.1

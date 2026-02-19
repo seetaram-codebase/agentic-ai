@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { api, HealthStatus, QueryResponse, UploadResponse } from './api/client';
+import { Settings } from './components/Settings';
 
 interface Source {
   source: string;
@@ -136,6 +137,9 @@ function App() {
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {/* Settings Section */}
+      <Settings />
 
       {/* Document Upload Section */}
       <section className="card">

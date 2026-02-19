@@ -1,10 +1,35 @@
 import axios from 'axios';
 
-// Backend API URL - update this when backend endpoint changes
-// For local development: 'http://localhost:8000'
-// For deployed backend: 'http://<ECS-PUBLIC-IP>:8000'
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://13.222.106.90:8000';
+// Backend API URL - can be configured at runtime via settings
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL || 'http://13.222.106.90:8000';
 
+// Get backend URL from localStorage or use default
+function getBackendUrl(): string {
+  const saved = localStorage.getItem('backend_url');
+  return saved || DEFAULT_BASE_URL;
+}
+
+// Save backend URL to localStorage
+export function setBackendUrl(url: string): void {
+  localStorage.setItem('backend_url', url);
+  // Update axios client baseURL
+  client.defaults.baseURL = url;
+  console.log('🔗 Updated API Base URL:', url);
+}
+
+// Reset to default URL
+export function resetBackendUrl(): void {
+  localStorage.removeItem('backend_url');
+  client.defaults.baseURL = DEFAULT_BASE_URL;
+  console.log('🔗 Reset API Base URL to default:', DEFAULT_BASE_URL);
+}
+
+// Get current backend URL
+export function getCurrentBackendUrl(): string {
+  return getBackendUrl();
+}
+
+const BASE_URL = getBackendUrl();
 console.log('🔗 API Base URL:', BASE_URL);
 
 const client = axios.create({
