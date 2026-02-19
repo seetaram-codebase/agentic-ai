@@ -75,6 +75,56 @@ npm run dev
 3. Ask questions about your documents
 4. Click "Trigger Failover" to demo failover capability
 
+## 🔐 Pinecone Integration
+
+This application uses **Pinecone** as the cloud vector database for storing document embeddings.
+
+### How Lambda Reads Pinecone API Key
+
+Lambda functions securely read the Pinecone API key from **AWS Systems Manager (SSM) Parameter Store** at runtime:
+
+```
+Terraform → SSM Parameter (placeholder)
+    ↓
+You Update → SSM with real API key (one-time)
+    ↓
+Lambda Env Var → Parameter NAME (not value)
+    ↓
+Lambda Runtime → boto3.client('ssm').get_parameter()
+    ↓
+AWS SSM/KMS → Decrypt and return API key
+    ↓
+Pinecone Client → Initialized with API key
+```
+
+**Security Benefits:**
+- ✅ No secrets in code or Git
+- ✅ Encrypted at rest with KMS
+- ✅ IAM-based access control
+- ✅ Easy rotation without code changes
+
+**Quick Setup:**
+```powershell
+# 1. Deploy infrastructure
+cd infrastructure/terraform
+terraform apply
+
+# 2. Update SSM with your Pinecone API key
+aws ssm put-parameter `
+  --name "/rag-demo/pinecone/api-key" `
+  --value "pc-YOUR-API-KEY" `
+  --type "SecureString" `
+  --overwrite
+
+# 3. Verify
+aws logs tail /aws/lambda/rag-demo-embedder --follow
+```
+
+**📚 Documentation:**
+- **[PINECONE-HOW-IT-WORKS.md](docs/PINECONE-HOW-IT-WORKS.md)** - Complete guide
+- **[PINECONE-API-KEY-QUICKREF.md](docs/PINECONE-API-KEY-QUICKREF.md)** - Quick reference
+- **[PINECONE-DOCS-INDEX.md](docs/PINECONE-DOCS-INDEX.md)** - All Pinecone docs
+
 ## 📁 Project Structure
 
 ```
@@ -84,6 +134,7 @@ agentic-ai/
 │       ├── backend-ci.yml       # Backend lint, test, build
 │       ├── frontend-ci.yml      # Frontend lint, build
 │       ├── deploy-ecs.yml       # Deploy to AWS ECS
+│       ├── deploy-lambda.yml    # Deploy Lambda functions
 │       ├── build-electron.yml   # Build Electron for Win/Mac/Linux
 │       └── infrastructure.yml   # Terraform plan/apply
 ├── backend/                     # FastAPI backend
@@ -96,6 +147,13 @@ agentic-ai/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── .env.example
+├── lambda/                      # AWS Lambda functions
+│   ├── chunker/                # Document chunking
+│   │   ├── handler.py
+│   │   └── requirements.txt
+│   └── embedder/               # Embedding generation
+│       ├── handler.py          # Reads Pinecone key from SSM
+│       └── requirements.txt
 ├── electron-ui/                 # Electron frontend
 │   ├── src/
 │   │   ├── App.tsx
@@ -105,12 +163,15 @@ agentic-ai/
 │   └── package.json
 ├── infrastructure/              # Infrastructure as Code
 │   └── terraform/
-│       └── main.tf             # ECS, ECR, DynamoDB
+│       ├── lambda.tf           # Lambda configuration
+│       ├── ssm.tf              # SSM parameters (Pinecone key)
+│       ├── ecs.tf              # ECS, ECR
+│       └── s3.tf               # S3, SQS, DynamoDB
 ├── docs/                        # Documentation
+│   ├── PINECONE-HOW-IT-WORKS.md     # Pinecone integration guide
+│   ├── PINECONE-DOCS-INDEX.md       # Pinecone docs index
 │   ├── 00-overview.md
 │   ├── SETUP-REQUIREMENTS.md
-│   ├── ecs-cost-estimation.md
-│   ├── project-organization-plan.md
 │   └── architecture/
 ├── sample-docs/                 # Test documents
 └── scripts/                     # Utility scripts
