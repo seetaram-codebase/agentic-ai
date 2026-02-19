@@ -198,7 +198,7 @@ def chunk_documents(documents: list) -> list:
         chunk_overlap=200
     )
     """
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     # Create text splitter using tiktoken encoding (same as notebook)
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
