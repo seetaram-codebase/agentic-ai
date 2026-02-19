@@ -42,6 +42,19 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Print requirements file before install
+        run: |
+          echo "=== CHUNKER requirements-minimal.txt CONTENT ==="
+          cat lambda/chunker/requirements-minimal.txt
+          echo ""
+          echo "=== Verifying langchain-community is present ==="
+          if grep -q "langchain-community" lambda/chunker/requirements-minimal.txt; then
+            echo "✅ langchain-community found in requirements"
+          else
+            echo "❌ langchain-community NOT found in requirements"
+            exit 1
+          fi
+
       - name: Install dependencies and package Chunker
         run: |
           cd lambda/chunker
@@ -92,6 +105,12 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Print requirements file before install
+        run: |
+          echo "=== EMBEDDER requirements-minimal.txt CONTENT ==="
+          cat lambda/embedder/requirements-minimal.txt
+          echo ""
 
       - name: Install dependencies and package Embedder
         run: |
