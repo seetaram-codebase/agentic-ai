@@ -67,7 +67,7 @@ echo ============================================
 echo Starting Development Server
 echo ============================================
 echo.
-echo Backend URL: http://54.89.127.74:8000
+echo Backend URL: http://13.222.106.90:8000
 echo.
 echo IMPORTANT: When Electron opens:
 echo  1. Press F12 to open DevTools

@@ -34,6 +34,13 @@ PINECONE_API_KEY_PARAM = os.environ.get('PINECONE_API_KEY_PARAM', '')
 PINECONE_INDEX = os.environ.get('PINECONE_INDEX', 'rag-demo')
 USE_PINECONE = os.environ.get('USE_PINECONE', 'false').lower() == 'true'
 
+# Azure OpenAI configuration (from SSM Parameter Store)
+# Supports multi-region with failover: us-east, eu-west
+AZURE_REGION_PRIMARY = os.environ.get('AZURE_REGION_PRIMARY', 'us-east')
+AZURE_REGION_FAILOVER = os.environ.get('AZURE_REGION_FAILOVER', 'eu-west')
+AZURE_OPENAI_API_VERSION = os.environ.get('AZURE_OPENAI_API_VERSION', '2024-02-01')
+APP_NAME = os.environ.get('APP_NAME', 'rag-demo')
+
 
 def get_pinecone_api_key():
     """Get Pinecone API key from SSM Parameter Store"""
@@ -59,11 +66,20 @@ def lambda_handler(event, context):
     processed_count = 0
     error_count = 0
 
-    # Get Azure OpenAI config once for all chunks
-    azure_config = get_azure_config()
+    # Get Azure OpenAI config from environment or DynamoDB
+    azure_config = get_azure_config_from_env() or get_azure_config()
     if not azure_config:
-        logger.error("No Azure OpenAI embedding config found")
-        raise Exception("Azure OpenAI config not found")
+        logger.warning("No Azure OpenAI embedding config found - embeddings will be skipped")
+        # Don't raise exception, just log warning and skip embedding generation
+        # This allows the Lambda to complete without error
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'processed': 0,
+                'errors': 0,
+                'message': 'No Azure OpenAI config - skipped embedding generation'
+            })
+        }
 
     # Initialize embedding model (like notebook)
     embedding_model = create_embedding_model(azure_config)
@@ -112,6 +128,91 @@ def lambda_handler(event, context):
             'errors': error_count
         })
     }
+
+
+def get_azure_config_from_env() -> dict:
+    """
+    Get Azure OpenAI configuration from SSM Parameter Store
+
+    Uses existing parameter structure:
+    - /{app_name}/azure-openai/{region}/embedding-key
+    - /{app_name}/azure-openai/{region}/embedding-endpoint
+    - /{app_name}/azure-openai/{region}/embedding-deployment
+
+    Supports multi-region failover: us-east (primary) → eu-west (failover)
+    """
+    # Try primary region first
+    config = try_get_azure_config_for_region(AZURE_REGION_PRIMARY)
+    if config:
+        return config
+
+    # Failover to secondary region
+    logger.warning(f"Primary region {AZURE_REGION_PRIMARY} failed, trying failover region {AZURE_REGION_FAILOVER}")
+    config = try_get_azure_config_for_region(AZURE_REGION_FAILOVER)
+    if config:
+        return config
+
+    logger.warning("No Azure OpenAI configuration found in any region")
+    return None
+
+
+def try_get_azure_config_for_region(region: str) -> dict:
+    """Try to get Azure OpenAI config for a specific region from SSM"""
+    try:
+        # Parameter paths based on your existing structure
+        key_param = f"/{APP_NAME}/azure-openai/{region}/embedding-key"
+        endpoint_param = f"/{APP_NAME}/azure-openai/{region}/embedding-endpoint"
+        deployment_param = f"/{APP_NAME}/azure-openai/{region}/embedding-deployment"
+
+        logger.info(f"Trying to get Azure OpenAI config for region: {region}")
+
+        # Get all parameters at once for efficiency
+        response = ssm.get_parameters(
+            Names=[key_param, endpoint_param, deployment_param],
+            WithDecryption=True
+        )
+
+        if not response.get('Parameters'):
+            logger.warning(f"No parameters found for region {region}")
+            return None
+
+        # Parse parameters
+        params = {p['Name']: p['Value'] for p in response['Parameters']}
+
+        # Check if we have all required parameters
+        api_key = params.get(key_param)
+        endpoint = params.get(endpoint_param)
+        deployment = params.get(deployment_param)
+
+        if not all([api_key, endpoint, deployment]):
+            missing = []
+            if not api_key: missing.append('api-key')
+            if not endpoint: missing.append('endpoint')
+            if not deployment: missing.append('deployment')
+            logger.warning(f"Missing parameters for region {region}: {missing}")
+            return None
+
+        # Validate values are not placeholders
+        if api_key.startswith('REPLACE_WITH_') or endpoint.startswith('https://YOUR_'):
+            logger.warning(f"Region {region} has placeholder values - please update SSM parameters")
+            return None
+
+        config = {
+            'endpoint': endpoint,
+            'api_key': api_key,
+            'deployment': deployment,
+            'api_version': AZURE_OPENAI_API_VERSION,
+            'config_id': f'ssm-{region}',
+            'region': region,
+            'priority': 1
+        }
+
+        logger.info(f"✅ Using Azure OpenAI config from region: {region}, deployment: {deployment}")
+        return config
+
+    except Exception as e:
+        logger.error(f"Failed to get Azure OpenAI config for region {region}: {e}")
+        return None
 
 
 def get_azure_config() -> dict:

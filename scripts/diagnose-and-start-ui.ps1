@@ -53,9 +53,9 @@ if (-not (Test-Path "node_modules")) {
 
 # 6. Test backend
 Write-Host "[6/8] Testing backend connection..." -ForegroundColor Yellow
-Write-Host "Testing: http://54.91.39.84:8000/health" -ForegroundColor White
+Write-Host "Testing: http://13.222.106.90:8000/health" -ForegroundColor White
 try {
-    $response = Invoke-WebRequest -Uri "http://54.91.39.84:8000/health" -TimeoutSec 5 -UseBasicParsing
+    $response = Invoke-WebRequest -Uri "http://13.222.106.90:8000/health" -TimeoutSec 5 -UseBasicParsing
     Write-Host "Backend is responding! ✓`n" -ForegroundColor Green
     Write-Host "Backend response:" -ForegroundColor Cyan
     Write-Host $response.Content -ForegroundColor White
@@ -66,7 +66,7 @@ try {
     Write-Host "Please check:" -ForegroundColor White
     Write-Host "- Is the backend running in AWS ECS?" -ForegroundColor White
     Write-Host "- Is the security group allowing port 8000?" -ForegroundColor White
-    Write-Host "- Check: http://54.91.39.84:8000/docs`n" -ForegroundColor White
+    Write-Host "- Check: http://13.222.106.90:8000/docs`n" -ForegroundColor White
 }
 
 # 7. Check critical files
@@ -93,7 +93,7 @@ Write-Host "All critical files present ✓`n" -ForegroundColor Green
 Write-Host "[8/8] Starting Electron UI..." -ForegroundColor Yellow
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Backend URL: http://54.91.39.84:8000" -ForegroundColor White
+Write-Host "Backend URL: http://13.222.106.90:8000" -ForegroundColor White
 Write-Host ""
 Write-Host "The Electron window should open in 15-20 seconds." -ForegroundColor Yellow
 Write-Host ""

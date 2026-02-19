@@ -55,8 +55,8 @@ echo.
 
 REM Check backend connectivity
 echo [6/8] Testing backend connection...
-echo Testing: http://54.91.39.84:8000/health
-curl -s -m 5 http://54.91.39.84:8000/health >nul 2>&1
+echo Testing: http://13.222.106.90:8000/health
+curl -s -m 5 http://13.222.106.90:8000/health >nul 2>&1
 if errorlevel 1 (
     echo WARNING: Backend not responding!
     echo The UI will still start, but may not function properly.
@@ -64,7 +64,7 @@ if errorlevel 1 (
     echo Please check:
     echo - Is the backend running in AWS ECS?
     echo - Is the security group allowing port 8000?
-    echo - Check: http://54.91.39.84:8000/docs
+    echo - Check: http://13.222.106.90:8000/docs
     echo.
 ) else (
     echo Backend is responding! ✓
@@ -96,7 +96,7 @@ REM Start the UI
 echo [8/8] Starting Electron UI...
 echo ============================================
 echo.
-echo Backend URL: http://54.91.39.84:8000
+echo Backend URL: http://13.222.106.90:8000
 echo.
 echo The Electron window should open in 15-20 seconds.
 echo If you see a blank screen:

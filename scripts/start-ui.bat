@@ -47,7 +47,7 @@ echo [3/3] Starting Electron app...
 echo.
 echo ============================================
 echo UI will connect to backend at:
-echo http://54.91.39.84:8000
+echo http://13.222.106.90:8000
 echo.
 echo The Electron window should open shortly...
 echo Press Ctrl+C to stop

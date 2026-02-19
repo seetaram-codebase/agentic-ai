@@ -6,10 +6,10 @@ Write-Host "============================================`n" -ForegroundColor Cya
 
 # Test 1: Check if backend IP is responding at all
 Write-Host "[1/5] Testing backend connectivity..." -ForegroundColor Yellow
-Write-Host "Target: http://54.91.39.84:8000" -ForegroundColor White
+Write-Host "Target: http://13.222.106.90:8000" -ForegroundColor White
 
 try {
-    $response = Test-NetConnection -ComputerName "54.91.39.84" -Port 8000 -InformationLevel Quiet -WarningAction SilentlyContinue
+    $response = Test-NetConnection -ComputerName "13.222.106.90" -Port 8000 -InformationLevel Quiet -WarningAction SilentlyContinue
     if ($response) {
         Write-Host "✓ Port 8000 is OPEN and accepting connections`n" -ForegroundColor Green
     } else {
@@ -26,7 +26,7 @@ try {
 # Test 2: Try to hit health endpoint
 Write-Host "[2/5] Testing /health endpoint..." -ForegroundColor Yellow
 try {
-    $health = Invoke-WebRequest -Uri "http://54.91.39.84:8000/health" -TimeoutSec 10 -UseBasicParsing
+    $health = Invoke-WebRequest -Uri "http://13.222.106.90:8000/health" -TimeoutSec 10 -UseBasicParsing
     Write-Host "✓ Health endpoint responding!" -ForegroundColor Green
     Write-Host "Status Code: $($health.StatusCode)" -ForegroundColor Cyan
     Write-Host "Response: $($health.Content)`n" -ForegroundColor White
@@ -50,15 +50,15 @@ try {
 # Test 3: Try API docs
 Write-Host "[3/5] Testing /docs endpoint..." -ForegroundColor Yellow
 try {
-    $docs = Invoke-WebRequest -Uri "http://54.91.39.84:8000/docs" -TimeoutSec 10 -UseBasicParsing
+    $docs = Invoke-WebRequest -Uri "http://13.222.106.90:8000/docs" -TimeoutSec 10 -UseBasicParsing
     Write-Host "✓ API docs accessible (Status: $($docs.StatusCode))`n" -ForegroundColor Green
 } catch {
     Write-Host "✗ API docs NOT accessible: $($_.Exception.Message)`n" -ForegroundColor Red
 }
 
-# Test 4: Check if it's an old/stale IP
+# Test 4: IP Address Status
 Write-Host "[4/5] IP Address Status..." -ForegroundColor Yellow
-Write-Host "Current configured IP: 54.91.39.84" -ForegroundColor White
+Write-Host "Current configured IP: 13.222.106.90" -ForegroundColor White
 Write-Host "`nNote: ECS task IPs change when tasks restart!" -ForegroundColor Yellow
 Write-Host "You may need to get the new IP from AWS Console.`n" -ForegroundColor Yellow
 

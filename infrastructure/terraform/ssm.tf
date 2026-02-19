@@ -167,6 +167,14 @@ resource "aws_ssm_parameter" "pinecone_api_key" {
   }
 }
 
+# Note: Azure OpenAI configuration already exists in SSM with regional structure:
+# - /{app_name}/azure-openai/us-east/embedding-key
+# - /{app_name}/azure-openai/us-east/embedding-endpoint
+# - /{app_name}/azure-openai/us-east/embedding-deployment
+# - /{app_name}/azure-openai/eu-west/embedding-key
+# - /{app_name}/azure-openai/eu-west/embedding-endpoint
+# - /{app_name}/azure-openai/eu-west/embedding-deployment
+
 resource "aws_ssm_parameter" "pinecone_index" {
   name  = "/${var.app_name}/pinecone/index-name"
   type  = "String"

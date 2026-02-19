@@ -155,10 +155,15 @@ resource "aws_lambda_function" "embedder" {
       DYNAMODB_DOCUMENTS_TABLE = aws_dynamodb_table.documents.name
       USE_CHROMA               = "true"
       CHROMA_PERSIST_DIR       = "/tmp/chroma_db"
+      APP_NAME                 = var.app_name
       # Pinecone configuration (API key from SSM)
       PINECONE_API_KEY_PARAM   = aws_ssm_parameter.pinecone_api_key.name
       PINECONE_INDEX           = var.pinecone_index
       USE_PINECONE             = var.use_pinecone ? "true" : "false"
+      # Azure OpenAI multi-region configuration (from existing SSM parameters)
+      AZURE_REGION_PRIMARY     = "us-east"
+      AZURE_REGION_FAILOVER    = "eu-west"
+      AZURE_OPENAI_API_VERSION = "2024-02-01"
     }
   }
 

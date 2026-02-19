@@ -50,7 +50,7 @@
 
   <div class="test-item" id="backend-test">
     <h3>Test 2: Backend Connection</h3>
-    <p>Testing connection to: <strong>http://54.91.39.84:8000</strong></p>
+    <p>Testing connection to: <strong>http://13.222.106.90:8000</strong></p>
     <button onclick="testBackend()">Test Backend</button>
     <div id="backend-result"></div>
   </div>
@@ -78,7 +78,7 @@
       resultDiv.innerHTML = '<p>Testing...</p>';
 
       try {
-        const response = await fetch('http://54.91.39.84:8000/health');
+        const response = await fetch('http://13.222.106.90:8000/health');
         const data = await response.json();
 
         resultDiv.innerHTML = `
