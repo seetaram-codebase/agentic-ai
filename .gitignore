@@ -39,6 +39,12 @@ Thumbs.db
 *.egg-info/
 build/
 
+# Lambda deployment packages
+lambda/*/package/
+lambda/*/chunker.zip
+lambda/*/embedder.zip
+lambda/*/*.zip
+lambda/*/requirements-lambda.txt
 
 # Local notes (may contain secrets)
 notes.txt
