@@ -25,6 +25,41 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Additional policy for ECS Task Execution to read SSM parameters (for secrets)
+resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
+  name = "${var.app_name}-ecs-task-execution-ssm"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SSMParameterAccess"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameters",
+          "ssm:GetParameter"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}:*:parameter/${var.app_name}/langsmith/*",
+          "arn:aws:ssm:${var.aws_region}:*:parameter/${var.app_name}/pinecone/*",
+          "arn:aws:ssm:${var.aws_region}:*:parameter/${var.app_name}/azure-openai/*"
+        ]
+      },
+      {
+        Sid      = "KMSDecryptForSecrets"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
 
 # ECS Task Role (used by the application running in the container)
 resource "aws_iam_role" "ecs_task" {

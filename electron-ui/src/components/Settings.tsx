@@ -88,15 +88,20 @@ export const Settings: React.FC = () => {
 
       <style>{`
         .settings-panel {
-          background: #f5f5f5;
-          padding: 20px;
-          border-radius: 8px;
+          background: var(--card);
+          padding: 24px;
+          border-radius: 12px;
           margin: 20px 0;
+          border: 1px solid var(--border);
+          box-shadow: 0 2px 12px var(--shadow);
         }
 
         .settings-panel h3 {
           margin-top: 0;
-          color: #333;
+          margin-bottom: 20px;
+          color: var(--text);
+          font-weight: 600;
+          font-size: 1.2rem;
         }
 
         .setting-item {
@@ -105,134 +110,168 @@ export const Settings: React.FC = () => {
 
         .setting-item label {
           display: block;
-          margin-bottom: 8px;
+          margin-bottom: 10px;
           font-weight: 600;
-          color: #555;
+          color: var(--text-secondary);
+          font-size: 0.95rem;
         }
 
         .url-display {
           display: flex;
-          gap: 10px;
+          gap: 12px;
           align-items: center;
         }
 
         .url-display code {
           flex: 1;
-          background: #fff;
-          padding: 10px;
-          border-radius: 4px;
-          border: 1px solid #ddd;
+          background: var(--bg-secondary);
+          padding: 12px 16px;
+          border-radius: 8px;
+          border: 1px solid var(--border);
           font-family: 'Courier New', monospace;
+          color: var(--primary);
+          font-size: 0.9rem;
         }
 
         .url-edit {
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          gap: 12px;
         }
 
         .url-input {
-          padding: 10px;
-          border: 2px solid #4CAF50;
-          border-radius: 4px;
-          font-size: 14px;
+          padding: 12px 16px;
+          border: 2px solid var(--primary);
+          border-radius: 8px;
+          font-size: 0.95rem;
           font-family: 'Courier New', monospace;
+          background: var(--bg);
+          color: var(--text);
+        }
+
+        .url-input:focus {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
         }
 
         .button-group {
           display: flex;
           gap: 10px;
+          flex-wrap: wrap;
         }
 
         .btn-edit,
         .btn-save,
         .btn-reset,
         .btn-cancel {
-          padding: 8px 16px;
+          padding: 10px 20px;
           border: none;
-          border-radius: 4px;
+          border-radius: 8px;
           cursor: pointer;
           font-weight: 600;
-          transition: background-color 0.3s;
+          transition: all 0.3s ease;
+          font-size: 0.9rem;
         }
 
         .btn-edit {
-          background: #2196F3;
+          background: var(--primary);
           color: white;
+          box-shadow: 0 2px 8px rgba(0, 102, 204, 0.2);
         }
 
         .btn-edit:hover {
-          background: #0b7dda;
+          background: var(--primary-dark);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 102, 204, 0.3);
         }
 
         .btn-save {
-          background: #4CAF50;
+          background: var(--success);
           color: white;
+          box-shadow: 0 2px 8px rgba(0, 200, 83, 0.2);
         }
 
         .btn-save:hover {
-          background: #45a049;
+          background: #00B248;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 200, 83, 0.3);
         }
 
         .btn-reset {
-          background: #ff9800;
+          background: var(--warning);
           color: white;
+          box-shadow: 0 2px 8px rgba(255, 152, 0, 0.2);
         }
 
         .btn-reset:hover {
-          background: #e68900;
+          background: #F57C00;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
         }
 
         .btn-cancel {
-          background: #9e9e9e;
+          background: var(--text-secondary);
           color: white;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
         .btn-cancel:hover {
-          background: #757575;
+          background: var(--text);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
         .success-message {
-          margin-top: 10px;
-          padding: 10px;
-          background: #d4edda;
-          border: 1px solid #c3e6cb;
-          color: #155724;
-          border-radius: 4px;
+          margin-top: 12px;
+          padding: 12px 16px;
+          background: #E8F5E9;
+          border: 1px solid var(--success);
+          color: #2E7D32;
+          border-radius: 8px;
+          font-weight: 500;
         }
 
         .setting-help {
-          margin-top: 20px;
-          padding: 15px;
-          background: #fff3cd;
-          border: 1px solid #ffeaa7;
-          border-radius: 4px;
+          margin-top: 24px;
+          padding: 20px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border);
+          border-radius: 8px;
         }
 
         .setting-help p {
-          margin: 5px 0;
-          color: #856404;
+          margin: 8px 0;
+          color: var(--text-secondary);
         }
 
         .setting-help strong {
-          color: #856404;
+          color: var(--text);
+          font-weight: 600;
         }
 
         .setting-help ul {
-          margin: 10px 0;
-          padding-left: 20px;
+          margin: 12px 0;
+          padding-left: 24px;
         }
 
         .setting-help li {
-          margin: 5px 0;
-          color: #856404;
+          margin: 8px 0;
+          color: var(--text-secondary);
         }
 
         .setting-help code {
-          background: #fff;
-          padding: 2px 6px;
-          border-radius: 3px;
+          background: var(--card);
+          padding: 4px 8px;
+          border-radius: 4px;
+          border: 1px solid var(--border);
           font-family: 'Courier New', monospace;
+          color: var(--primary);
+          font-size: 0.9rem;
+        }
+
+        .setting-help em {
+          color: var(--text-muted);
+          font-style: italic;
         }
       `}</style>
     </div>

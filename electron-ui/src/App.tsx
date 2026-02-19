@@ -132,14 +132,15 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>🤖 RAG Demo</h1>
-        <span className="subtitle">Developer Week 2026</span>
+        <div className="logo-container">
+          <img src="/developer_week_logo.png" alt="Developer Week" className="logo" />
+        </div>
+        <h1>RAG Knowledge Assistant</h1>
+        <p className="subtitle">Intelligent Document Q&A with Multi-Region Resilience</p>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
 
-      {/* Settings Section */}
-      <Settings />
 
       {/* Document Upload Section */}
       <section className="card">
@@ -243,8 +244,11 @@ function App() {
         </div>
       </section>
 
+      {/* Settings Section - Moved to Bottom */}
+      <Settings />
+
       <footer className="footer">
-        <p>RAG Demo • Azure OpenAI + Chroma/Pinecone • Built for Developer Week 2026</p>
+        <p>RAG Knowledge Assistant • Developer Week 2026 • Powered by Azure OpenAI & AWS</p>
       </footer>
     </div>
   );
