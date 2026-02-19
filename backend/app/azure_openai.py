@@ -87,10 +87,16 @@ class AzureOpenAIFailover:
                 api_key=config.api_key,
                 api_version="2024-02-01"
             )
-            # Store as tuple for consistency with other init methods
-            self.embedding_clients.append((client, config.deployment, f"Embedding ({config.region})"))
+            # Store as tuple: (client, deployment_model, display_name)
+            display_name = f"Embedding ({config.region})"
+            self.embedding_clients.append((client, config.deployment, display_name))
+            logger.info(f"Loaded embedding client: {display_name}, model: {config.deployment}")
 
         logger.info(f"Loaded configs from SSM: {len(self.configs)} chat, {len(self.embedding_clients)} embedding")
+
+        # Debug: Log embedding clients structure
+        for idx, (client, deployment, name) in enumerate(self.embedding_clients):
+            logger.info(f"Embedding client {idx}: name={name}, deployment={deployment}, client_type={type(client).__name__}")
 
     def _init_from_dynamodb(self):
         """Initialize configurations from DynamoDB"""
@@ -320,10 +326,21 @@ class AzureOpenAIFailover:
         """
         errors = []
 
+        # Debug logging
+        logger.info(f"generate_embeddings called with {len(texts)} texts")
+        logger.info(f"Available embedding clients: {len(self.embedding_clients)}")
+
         # Try dedicated embedding endpoints first
-        for client, deployment, name in self.embedding_clients:
+        for idx, embedding_tuple in enumerate(self.embedding_clients):
             try:
+                logger.info(f"Processing embedding client {idx}: {embedding_tuple}")
+                logger.info(f"Tuple length: {len(embedding_tuple)}, types: {[type(x).__name__ for x in embedding_tuple]}")
+
+                client, deployment, name = embedding_tuple
+
+                logger.info(f"Unpacked - client type: {type(client).__name__}, deployment: {deployment}, name: {name}")
                 logger.info(f"Generating embeddings with {name}")
+
                 response = client.embeddings.create(
                     input=texts,
                     model=deployment,
@@ -332,8 +349,8 @@ class AzureOpenAIFailover:
                 embeddings = [item.embedding for item in response.data]
                 return embeddings, name
             except Exception as e:
-                logger.error(f"Embedding error with {name}: {e}")
-                errors.append(f"{name}: {e}")
+                logger.error(f"Embedding error with client {idx}: {e}")
+                errors.append(f"{idx}: {e}")
                 continue
 
         # Fallback to chat endpoints for embeddings if no dedicated endpoints
