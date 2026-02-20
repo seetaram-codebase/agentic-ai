@@ -226,12 +226,34 @@ def chunk_documents(documents: list) -> list:
 
 
 def generate_document_id(bucket: str, key: str) -> str:
-    """Generate a unique document ID"""
-    import hashlib
-    import time
+    """
+    Extract document ID from S3 key filename
 
-    unique_string = f"{bucket}/{key}/{time.time()}"
-    return hashlib.sha256(unique_string.encode()).hexdigest()[:16]
+    Backend creates keys like: uploads/{document_id}_{filename}
+    e.g., uploads/6058ee32-f80b-40_latest_news_file.txt
+
+    We need to extract the document_id part to match the DynamoDB record
+    """
+    import re
+
+    # Extract filename from key (removes path)
+    filename = key.split('/')[-1]
+
+    # Pattern: {document_id}_{original_filename}
+    # document_id is first 16 chars of UUID with hyphens: xxxxxxxx-xxxx-xx
+    match = re.match(r'^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{2})', filename)
+
+    if match:
+        document_id = match.group(1)
+        logger.info(f"Extracted document_id from S3 key: {document_id}")
+        return document_id
+    else:
+        # Fallback: generate from hash (legacy behavior)
+        logger.warning(f"Could not extract document_id from key: {key}, generating new ID")
+        import hashlib
+        import time
+        unique_string = f"{bucket}/{key}/{time.time()}"
+        return hashlib.sha256(unique_string.encode()).hexdigest()[:16]
 
 
 def send_chunks_to_queue(document_id: str, document_key: str, chunks: list):
@@ -275,25 +297,32 @@ def send_chunks_to_queue(document_id: str, document_key: str, chunks: list):
 
 def save_document_metadata(document_id: str, key: str, bucket: str,
                           chunk_count: int, file_size: int, status: str):
-    """Save document metadata to DynamoDB"""
+    """
+    Update document metadata in DynamoDB
+
+    The backend already created a record with status='uploaded'
+    We need to UPDATE it, not overwrite it
+    """
     try:
         table = dynamodb.Table(DOCUMENTS_TABLE)
         import time
 
-        table.put_item(Item={
-            'document_id': document_id,
-            'document_key': key,
-            'bucket': bucket,
-            'chunk_count': chunk_count,
-            'chunks_embedded': 0,
-            'file_size': file_size,
-            'status': status,
-            'created_at': int(time.time()),
-            'updated_at': int(time.time())
-        })
+        # Update existing record (don't overwrite)
+        table.update_item(
+            Key={'document_id': document_id},
+            UpdateExpression='SET chunk_count = :chunk_count, #status = :status, updated_at = :now',
+            ExpressionAttributeNames={
+                '#status': 'status'  # 'status' is a reserved word in DynamoDB
+            },
+            ExpressionAttributeValues={
+                ':chunk_count': chunk_count,
+                ':status': status,
+                ':now': int(time.time())
+            }
+        )
 
-        logger.info(f"Saved metadata for document {document_id}")
+        logger.info(f"Updated metadata for document {document_id}: {chunk_count} chunks, status={status}")
 
     except Exception as e:
-        logger.error(f"Error saving document metadata: {str(e)}")
+        logger.error(f"Error updating document metadata: {str(e)}")
         raise

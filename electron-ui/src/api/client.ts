@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Backend API URL - can be configured at runtime via settings
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL || 'http://13.222.106.90:8000';
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL || 'http://54.89.155.20:8000';
 
 // Get backend URL from localStorage or use default
 function getBackendUrl(): string {
@@ -126,6 +126,11 @@ export const api = {
 
   async getDocuments(): Promise<{ document_count: number }> {
     const response = await client.get('/documents');
+    return response.data;
+  },
+
+  async getDocumentStatus(documentId: string): Promise<DocumentStatus> {
+    const response = await client.get<DocumentStatus>(`/documents/${documentId}/status`);
     return response.data;
   }
 };

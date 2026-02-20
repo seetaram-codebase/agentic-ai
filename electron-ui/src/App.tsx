@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { api, HealthStatus, QueryResponse, UploadResponse } from './api/client';
+import { api, HealthStatus, QueryResponse, UploadResponse, DocumentStatus } from './api/client';
 import { Settings } from './components/Settings';
 
 interface Source {
   source: string;
   page: number;
+}
+
+interface ProcessingDocument {
+  documentId: string;
+  filename: string;
+  status: DocumentStatus | null;
 }
 
 function App() {
@@ -19,6 +25,7 @@ function App() {
   const [documentCount, setDocumentCount] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [processingDocs, setProcessingDocs] = useState<ProcessingDocument[]>([]);
 
   console.log('📱 App component rendered');
 
@@ -54,6 +61,41 @@ function App() {
     }
   };
 
+  // Poll document status for documents still processing
+  useEffect(() => {
+    if (processingDocs.length === 0) return;
+
+    const pollInterval = setInterval(async () => {
+      const updatedDocs = await Promise.all(
+        processingDocs.map(async (doc) => {
+          try {
+            const docStatus = await api.getDocumentStatus(doc.documentId);
+            return { ...doc, status: docStatus };
+          } catch (e) {
+            console.warn(`⚠️ Error fetching status for ${doc.documentId}:`, e);
+            return doc;
+          }
+        })
+      );
+
+      setProcessingDocs(updatedDocs);
+
+      // Remove completed or errored documents after a delay
+      const stillProcessing = updatedDocs.filter(
+        doc => doc.status && !['completed', 'error'].includes(doc.status.status)
+      );
+
+      if (stillProcessing.length !== updatedDocs.length) {
+        // Refresh stats when documents complete
+        refreshStats();
+      }
+
+      setProcessingDocs(stillProcessing);
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [processingDocs]);
+
   // File upload handler
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setUploading(true);
@@ -61,12 +103,27 @@ function App() {
     setError('');
 
     try {
+      const newProcessingDocs: ProcessingDocument[] = [];
+
       for (const file of acceptedFiles) {
         setUploadStatus(`Uploading ${file.name}...`);
         const result: UploadResponse = await api.uploadFile(file);
         setUploadStatus(`✅ ${file.name}: ${result.status} - ${result.message}`);
         console.log('📤 Upload response:', result);
+
+        // Add to processing list for status tracking
+        if (result.document_id) {
+          newProcessingDocs.push({
+            documentId: result.document_id,
+            filename: file.name,
+            status: null
+          });
+        }
       }
+
+      // Add new documents to processing list
+      setProcessingDocs(prev => [...prev, ...newProcessingDocs]);
+
       refreshStats();
       refreshStatus();
     } catch (e: any) {
@@ -162,6 +219,66 @@ function App() {
         </div>
         {uploading && <div className="loading-bar"></div>}
       </section>
+
+      {/* Document Processing Status Section */}
+      {processingDocs.length > 0 && (
+        <section className="card processing-status-card">
+          <h2>⏳ Processing Documents</h2>
+          <div className="processing-list">
+            {processingDocs.map((doc) => (
+              <div key={doc.documentId} className="processing-item">
+                <div className="processing-header">
+                  <span className="doc-filename">📄 {doc.filename}</span>
+                  <span className={`status-badge status-${doc.status?.status || 'loading'}`}>
+                    {doc.status?.status || 'checking...'}
+                  </span>
+                </div>
+                {doc.status && (
+                  <>
+                    <div className="progress-bar-container">
+                      <div
+                        className="progress-bar-fill"
+                        style={{ width: `${doc.status.progress}%` }}
+                      ></div>
+                    </div>
+                    <div className="processing-details">
+                      <span>Progress: {doc.status.progress}%</span>
+                      <span>Chunks: {doc.status.chunks_embedded} / {doc.status.chunk_count}</span>
+                    </div>
+                    {doc.status.progress === 0 && doc.status.status === 'uploaded' && (
+                      <div className="status-hint">
+                        ℹ️ Document uploaded to S3, waiting for chunking to begin...
+                      </div>
+                    )}
+                    {doc.status.progress === 0 && doc.status.status === 'chunked' && (
+                      <div className="status-hint">
+                        ℹ️ Document chunked into {doc.status.chunk_count} pieces, waiting for embedding to start...
+                      </div>
+                    )}
+                    {doc.status.status === 'embedding' && doc.status.progress < 100 && (
+                      <div className="status-hint">
+                        ⚡ Embeddings being generated in parallel - this usually takes {Math.ceil(doc.status.chunk_count / 5)}-{Math.ceil(doc.status.chunk_count / 2)} seconds
+                      </div>
+                    )}
+                  </>
+                )}
+                {!doc.status && (
+                  <div className="status-hint">
+                    🔍 Checking processing status...
+                  </div>
+                )}
+                <div className="document-id-display">
+                  <small>ID: {doc.documentId}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="processing-info">
+            💡 <strong>Tip:</strong> Documents are processed automatically. Progress updates every 3 seconds.
+            You can query the document once it reaches 100% or status shows "completed".
+          </div>
+        </section>
+      )}
 
       {/* Query Section */}
       <section className="card">

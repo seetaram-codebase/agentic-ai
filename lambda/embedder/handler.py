@@ -96,14 +96,18 @@ def lambda_handler(event, context):
             document_key = body['document_key']
             chunk = body['chunk']
 
-            logger.info(f"Processing chunk {chunk['index']} for document {document_id}")
+            logger.info(f"📄 Processing chunk {chunk['index']}/{chunk.get('total', '?')} for document_id: {document_id}")
+            logger.info(f"   Document key: {document_key}")
+            logger.info(f"   Chunk text length: {len(chunk['text'])} chars")
 
             # Generate embedding using LangChain (like notebook)
             embedding = generate_embedding_langchain(chunk['text'], embedding_model)
 
             if embedding:
+                logger.info(f"   Generated embedding vector: {len(embedding)} dimensions")
+
                 # Store embedding in vector store
-                store_embedding(
+                store_success = store_embedding(
                     document_id=document_id,
                     document_key=document_key,
                     chunk=chunk,
@@ -111,18 +115,21 @@ def lambda_handler(event, context):
                     embedding_model=embedding_model
                 )
 
-                # Update document progress
-                update_document_progress(document_id)
-
-                processed_count += 1
-                logger.info(f"Successfully embedded chunk {chunk['index']} for {document_id}")
+                if store_success:
+                    # Update document progress in DynamoDB
+                    update_document_progress(document_id)
+                    processed_count += 1
+                    logger.info(f"✅ Successfully embedded and stored chunk {chunk['index']} for {document_id}")
+                else:
+                    error_count += 1
+                    logger.error(f"Failed to store embedding for chunk {chunk['index']}")
             else:
                 error_count += 1
                 logger.error(f"Failed to generate embedding for chunk {chunk['index']}")
 
         except Exception as e:
             error_count += 1
-            logger.error(f"Error processing chunk: {str(e)}")
+            logger.error(f"❌ Error processing chunk: {str(e)}", exc_info=True)
 
     return {
         'statusCode': 200,
@@ -366,27 +373,38 @@ def store_to_pinecone(document_id: str, document_key: str, chunk: dict, embeddin
 
 
 def update_document_progress(document_id: str):
-    """Update the document's embedding progress in DynamoDB"""
+    """
+    Update the document's embedding progress in DynamoDB
+
+    This updates the SAME document record that the backend created,
+    using the document_id extracted by the chunker Lambda
+    """
     try:
         table = dynamodb.Table(DOCUMENTS_TABLE)
         import time
 
+        logger.info(f"Updating DynamoDB progress for document_id: {document_id}")
+
         # Increment chunks_embedded counter
-        table.update_item(
+        response = table.update_item(
             Key={'document_id': document_id},
             UpdateExpression='SET chunks_embedded = if_not_exists(chunks_embedded, :zero) + :inc, updated_at = :now',
             ExpressionAttributeValues={
                 ':inc': 1,
                 ':zero': 0,
                 ':now': int(time.time())
-            }
+            },
+            ReturnValues='ALL_NEW'
         )
 
-        # Check if all chunks are embedded and update status
-        response = table.get_item(Key={'document_id': document_id})
-        item = response.get('Item', {})
+        updated_item = response.get('Attributes', {})
+        chunks_embedded = updated_item.get('chunks_embedded', 0)
+        chunk_count = updated_item.get('chunk_count', 0)
 
-        if item.get('chunks_embedded', 0) >= item.get('chunk_count', 0):
+        logger.info(f"Progress updated: {chunks_embedded}/{chunk_count} chunks embedded")
+
+        # Check if all chunks are embedded and update status
+        if chunks_embedded >= chunk_count and chunk_count > 0:
             table.update_item(
                 Key={'document_id': document_id},
                 UpdateExpression='SET #status = :status, completed_at = :now',
@@ -396,7 +414,10 @@ def update_document_progress(document_id: str):
                     ':now': int(time.time())
                 }
             )
-            logger.info(f"Document {document_id} fully embedded")
+            logger.info(f"🎉 Document {document_id} fully embedded ({chunk_count} chunks)! Status set to 'completed'")
+        else:
+            logger.info(f"Document {document_id} progress: {chunks_embedded}/{chunk_count} ({int(chunks_embedded/chunk_count*100) if chunk_count > 0 else 0}%)")
 
     except Exception as e:
-        logger.error(f"Error updating document progress: {str(e)}")
+        logger.error(f"Error updating document progress for {document_id}: {str(e)}")
+        # Log the error but don't raise - we still want the embedding to be stored
