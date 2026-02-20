@@ -408,11 +408,60 @@ async def get_document_status(document_id: str):
 
 @app.delete("/documents")
 async def clear_documents():
-    """Clear all documents from the vector store"""
+    """
+    Clear all documents from the vector store AND DynamoDB.
+
+    This removes:
+    - All vectors from Pinecone/Chroma
+    - All document tracking records from DynamoDB
+    """
     try:
+        # Clear vector store (Pinecone/Chroma)
         rag = get_rag()
-        success = rag.clear_documents()
-        return {"success": success, "message": "Documents cleared" if success else "Failed to clear"}
+        vector_success = rag.clear_documents()
+
+        # Clear DynamoDB document records
+        dynamodb_success = False
+        deleted_count = 0
+
+        if dynamodb_client:
+            try:
+                table = dynamodb_client.Table(DYNAMODB_DOCUMENTS_TABLE)
+
+                # Scan and delete all items
+                response = table.scan()
+                items = response.get('Items', [])
+
+                with table.batch_writer() as batch:
+                    for item in items:
+                        batch.delete_item(Key={'document_id': item['document_id']})
+                        deleted_count += 1
+
+                # Handle pagination if there are more items
+                while 'LastEvaluatedKey' in response:
+                    response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+                    items = response.get('Items', [])
+                    with table.batch_writer() as batch:
+                        for item in items:
+                            batch.delete_item(Key={'document_id': item['document_id']})
+                            deleted_count += 1
+
+                dynamodb_success = True
+                logger.info(f"Deleted {deleted_count} document records from DynamoDB")
+            except Exception as e:
+                logger.error(f"Error clearing DynamoDB: {e}")
+
+        # Return comprehensive result
+        result = {
+            "success": vector_success and (dynamodb_success or not dynamodb_client),
+            "vector_store_cleared": vector_success,
+            "dynamodb_cleared": dynamodb_success,
+            "dynamodb_records_deleted": deleted_count,
+            "message": f"Cleared vectors and {deleted_count} DynamoDB records" if vector_success else "Failed to clear"
+        }
+
+        return result
+
     except Exception as e:
         logger.error(f"Error clearing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
