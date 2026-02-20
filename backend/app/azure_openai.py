@@ -9,6 +9,18 @@ from typing import Optional, Tuple, List, Dict, Any
 from dataclasses import dataclass
 from openai import AzureOpenAI
 
+# LangSmith auto-instrumentation for OpenAI SDK
+try:
+    from langsmith import wrap_openai
+    from langsmith import wrappers
+    LANGSMITH_AVAILABLE = True
+    logger_init = logging.getLogger(__name__)
+    logger_init.info("✅ LangSmith available - OpenAI calls will be traced")
+except ImportError:
+    LANGSMITH_AVAILABLE = False
+    logger_init = logging.getLogger(__name__)
+    logger_init.warning("⚠️ LangSmith not installed - tracing disabled")
+
 logger = logging.getLogger(__name__)
 
 
@@ -215,11 +227,18 @@ class AzureOpenAIFailover:
 
     def _create_client(self, config: AzureConfig) -> AzureOpenAI:
         """Create an Azure OpenAI client from config"""
-        return AzureOpenAI(
+        client = AzureOpenAI(
             azure_endpoint=config.endpoint,
             api_key=config.api_key,
             api_version="2024-02-01"
         )
+
+        # Wrap with LangSmith if available and enabled
+        if LANGSMITH_AVAILABLE and os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true":
+            client = wrap_openai(client)
+            logger.info(f"✅ Wrapped OpenAI client with LangSmith tracing for {config.name}")
+
+        return client
 
     def _should_retry_endpoint(self, index: int) -> bool:
         """Check if enough time has passed to retry a failed endpoint"""
