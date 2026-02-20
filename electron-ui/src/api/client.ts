@@ -1,6 +1,36 @@
 import axios from 'axios';
 
-const BASE_URL = 'http://localhost:8000';
+// Backend API URL - can be configured at runtime via settings
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL || 'http://54.89.155.20:8000';
+
+// Get backend URL from localStorage or use default
+function getBackendUrl(): string {
+  const saved = localStorage.getItem('backend_url');
+  return saved || DEFAULT_BASE_URL;
+}
+
+// Save backend URL to localStorage
+export function setBackendUrl(url: string): void {
+  localStorage.setItem('backend_url', url);
+  // Update axios client baseURL
+  client.defaults.baseURL = url;
+  console.log('🔗 Updated API Base URL:', url);
+}
+
+// Reset to default URL
+export function resetBackendUrl(): void {
+  localStorage.removeItem('backend_url');
+  client.defaults.baseURL = DEFAULT_BASE_URL;
+  console.log('🔗 Reset API Base URL to default:', DEFAULT_BASE_URL);
+}
+
+// Get current backend URL
+export function getCurrentBackendUrl(): string {
+  return getBackendUrl();
+}
+
+const BASE_URL = getBackendUrl();
+console.log('🔗 API Base URL:', BASE_URL);
 
 const client = axios.create({
   baseURL: BASE_URL,
@@ -9,10 +39,11 @@ const client = axios.create({
 
 export interface UploadResponse {
   filename: string;
-  chunks_created: number;
   document_id: string;
-  provider: string;
   status: string;
+  message: string;
+  s3_key: string;
+  bucket: string;
 }
 
 export interface QueryResponse {
@@ -96,5 +127,22 @@ export const api = {
   async getDocuments(): Promise<{ document_count: number }> {
     const response = await client.get('/documents');
     return response.data;
+  },
+
+  async getDocumentStatus(documentId: string): Promise<DocumentStatus> {
+    const response = await client.get<DocumentStatus>(`/documents/${documentId}/status`);
+    return response.data;
   }
 };
+
+export interface DocumentStatus {
+  document_id: string;
+  document_key: string;
+  status: string; // 'uploaded', 'chunked', 'embedding', 'completed', 'error'
+  chunk_count: number;
+  chunks_embedded: number;
+  progress: number; // 0-100
+  created_at: number;
+  updated_at: number;
+}
+

@@ -51,6 +51,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
       days_after_initiation = 7
     }
   }
+
+  depends_on = [aws_s3_bucket.documents]
 }
 
 # S3 Event Notification to SQS (Chunking Queue)

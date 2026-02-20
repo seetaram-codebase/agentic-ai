@@ -153,8 +153,20 @@ resource "aws_lambda_function" "embedder" {
     variables = {
       DYNAMODB_CONFIG_TABLE    = aws_dynamodb_table.config.name
       DYNAMODB_DOCUMENTS_TABLE = aws_dynamodb_table.documents.name
-      USE_CHROMA               = "true"
-      CHROMA_PERSIST_DIR       = "/tmp/chroma_db"
+      APP_NAME                 = var.app_name
+      # Pinecone configuration (API key from SSM)
+      PINECONE_API_KEY_PARAM   = aws_ssm_parameter.pinecone_api_key.name
+      PINECONE_INDEX           = var.pinecone_index
+      USE_PINECONE             = var.use_pinecone ? "true" : "false"
+      # Azure OpenAI multi-region configuration (from existing SSM parameters)
+      AZURE_REGION_PRIMARY     = "us-east"
+      AZURE_REGION_FAILOVER    = "eu-west"
+      AZURE_OPENAI_API_VERSION = "2024-02-01"
+      # LangSmith observability
+      LANGCHAIN_TRACING_V2     = var.langsmith_enabled ? "true" : "false"
+      LANGCHAIN_API_KEY        = var.langsmith_enabled ? data.aws_ssm_parameter.langsmith_api_key[0].value : ""
+      LANGCHAIN_PROJECT        = var.langsmith_project
+      LANGCHAIN_ENDPOINT       = "https://api.smith.langchain.com"
     }
   }
 

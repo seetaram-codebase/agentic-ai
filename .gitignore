@@ -39,9 +39,25 @@ Thumbs.db
 *.egg-info/
 build/
 
+# Lambda deployment packages
+lambda/*/package/
+lambda/*/chunker.zip
+lambda/*/embedder.zip
+lambda/*/*.zip
+lambda/*/requirements-lambda.txt
 
 # Local notes (may contain secrets)
 notes.txt
 
 # Terraform Lambda placeholder ZIPs
 infrastructure/terraform/*_placeholder.zip
+
+# Terraform state and secrets
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfvars
+**/.terraformrc
+**/terraform.rc
+

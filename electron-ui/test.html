@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UI Test Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    .test-item {
+      background: #0f3460;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border-left: 4px solid #4a90d9;
+    }
+    .success { border-left-color: #28a745; }
+    .error { border-left-color: #dc3545; }
+    button {
+      background: #4a90d9;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    button:hover { background: #3a7bc8; }
+    pre {
+      background: #16213e;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 RAG Demo UI - Diagnostic Test</h1>
+
+  <div class="test-item">
+    <h3>Test 1: Page Loaded</h3>
+    <p>✅ If you're seeing this page, HTML is loading correctly!</p>
+  </div>
+
+  <div class="test-item" id="backend-test">
+    <h3>Test 2: Backend Connection</h3>
+    <p>Testing connection to: <strong>http://13.222.106.90:8000</strong></p>
+    <button onclick="testBackend()">Test Backend</button>
+    <div id="backend-result"></div>
+  </div>
+
+  <div class="test-item">
+    <h3>Test 3: Environment Variables</h3>
+    <pre id="env-vars">Loading...</pre>
+  </div>
+
+  <div class="test-item">
+    <h3>Test 4: React Dependencies</h3>
+    <div id="react-test">Checking...</div>
+  </div>
+
+  <div class="test-item">
+    <h3>Test 5: Console Errors</h3>
+    <p>Open DevTools (F12) and check Console tab for any errors</p>
+    <div id="error-log"></div>
+  </div>
+
+  <script>
+    // Test backend connection
+    async function testBackend() {
+      const resultDiv = document.getElementById('backend-result');
+      resultDiv.innerHTML = '<p>Testing...</p>';
+
+      try {
+        const response = await fetch('http://13.222.106.90:8000/health');
+        const data = await response.json();
+
+        resultDiv.innerHTML = `
+          <p style="color: #28a745;">✅ Backend Connected!</p>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+        `;
+        document.getElementById('backend-test').classList.add('success');
+      } catch (error) {
+        resultDiv.innerHTML = `
+          <p style="color: #dc3545;">❌ Connection Failed</p>
+          <p>Error: ${error.message}</p>
+          <p><strong>Possible causes:</strong></p>
+          <ul>
+            <li>Backend not running</li>
+            <li>CSP blocking the connection</li>
+            <li>Network/firewall issue</li>
+          </ul>
+        `;
+        document.getElementById('backend-test').classList.add('error');
+      }
+    }
+
+    // Show environment variables
+    const envDiv = document.getElementById('env-vars');
+    envDiv.textContent = `
+VITE_API_URL: ${import.meta.env.VITE_API_URL || 'not set'}
+MODE: ${import.meta.env.MODE}
+DEV: ${import.meta.env.DEV}
+PROD: ${import.meta.env.PROD}
+    `.trim();
+
+    // Check React
+    const reactDiv = document.getElementById('react-test');
+    try {
+      // This will fail if React isn't loaded, which is expected in this test page
+      reactDiv.innerHTML = '<p>React check: This is a standalone test page</p>';
+    } catch (e) {
+      reactDiv.innerHTML = `<p style="color: #dc3545;">Error: ${e.message}</p>`;
+    }
+
+    // Capture console errors
+    window.addEventListener('error', (event) => {
+      const errorLog = document.getElementById('error-log');
+      errorLog.innerHTML += `<p style="color: #dc3545;">❌ ${event.message}</p>`;
+    });
+
+    // Auto-test backend on load
+    window.addEventListener('load', () => {
+      setTimeout(testBackend, 1000);
+    });
+  </script>
+</body>
+</html>
+

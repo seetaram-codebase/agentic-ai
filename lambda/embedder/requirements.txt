@@ -13,3 +13,7 @@ chromadb==0.6.3
 
 # Optional: Pinecone for cloud vector storage
 pinecone-client>=3.0.0
+
+# Observability
+langsmith==0.1.77
+

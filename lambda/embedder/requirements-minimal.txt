@@ -1,0 +1,12 @@
+# Lambda Embedder Dependencies - Optimized
+
+# AWS SDK (available in Lambda runtime)
+boto3
+
+# LangChain for embeddings
+langchain-core
+langchain-openai
+
+# Pinecone for vector storage
+pinecone
+

@@ -150,3 +150,70 @@ resource "aws_ssm_parameter" "azure_embedding_deployment_2" {
     ignore_changes = [value]
   }
 }
+
+# ============================================
+# Pinecone Configuration
+# ============================================
+
+resource "aws_ssm_parameter" "pinecone_api_key" {
+  name  = "/${var.app_name}/pinecone/api-key"
+  type  = "SecureString"
+  value = "REPLACE_WITH_REAL_PINECONE_KEY"  # Update via AWS Console or CLI
+
+  tags = { Name = "${var.app_name}-pinecone-key" }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Note: Azure OpenAI configuration already exists in SSM with regional structure:
+# - /{app_name}/azure-openai/us-east/embedding-key
+# - /{app_name}/azure-openai/us-east/embedding-endpoint
+# - /{app_name}/azure-openai/us-east/embedding-deployment
+# - /{app_name}/azure-openai/eu-west/embedding-key
+# - /{app_name}/azure-openai/eu-west/embedding-endpoint
+# - /{app_name}/azure-openai/eu-west/embedding-deployment
+
+resource "aws_ssm_parameter" "pinecone_index" {
+  name  = "/${var.app_name}/pinecone/index-name"
+  type  = "String"
+  value = var.pinecone_index
+
+  tags = { Name = "${var.app_name}-pinecone-index" }
+}
+
+resource "aws_ssm_parameter" "pinecone_environment" {
+  name  = "/${var.app_name}/pinecone/environment"
+  type  = "String"
+  value = "us-east-1"
+
+  tags = { Name = "${var.app_name}-pinecone-env" }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# ============================================
+# LangSmith Observability Configuration
+# ============================================
+
+resource "aws_ssm_parameter" "langsmith_api_key" {
+  name  = "/${var.app_name}/langsmith/api-key"
+  type  = "SecureString"
+  value = "REPLACE_WITH_YOUR_LANGSMITH_API_KEY"  # Update via AWS Console or CLI
+
+  tags = { Name = "${var.app_name}-langsmith-api-key" }
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Data source to read LangSmith API key (for Lambda)
+data "aws_ssm_parameter" "langsmith_api_key" {
+  count = var.langsmith_enabled ? 1 : 0
+  name  = aws_ssm_parameter.langsmith_api_key.name
+  depends_on = [aws_ssm_parameter.langsmith_api_key]
+}

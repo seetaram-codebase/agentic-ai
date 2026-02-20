@@ -87,11 +87,21 @@ jobs:
         run: |
           cd lambda/chunker
           mkdir -p package
-          pip install -r requirements.txt -t package/
+          
+          # Use minimal requirements to keep package under 50MB
+          pip install -r requirements-minimal.txt -t package/ \
+            --platform manylinux2014_x86_64 \
+            --only-binary=:all: \
+            --upgrade
+          
           cp handler.py package/
           cd package
-          zip -r ../chunker.zip .
+          zip -r9 ../chunker.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*"
           cd ..
+          
+          # Check package size
+          SIZE=$(stat --format=%s chunker.zip 2>/dev/null || stat -f%z chunker.zip 2>/dev/null || echo 0)
+          echo "Chunker package size: $SIZE bytes (~$(($SIZE / 1024 / 1024)) MB)"
           
           echo "Deploying Chunker Lambda..."
           aws lambda update-function-code \
@@ -104,11 +114,21 @@ jobs:
         run: |
           cd lambda/embedder
           mkdir -p package
-          pip install -r requirements.txt -t package/
+          
+          # Use minimal requirements (no ChromaDB - uses API instead)
+          pip install -r requirements-minimal.txt -t package/ \
+            --platform manylinux2014_x86_64 \
+            --only-binary=:all: \
+            --upgrade
+          
           cp handler.py package/
           cd package
-          zip -r ../embedder.zip .
+          zip -r9 ../embedder.zip . -x "*.pyc" -x "__pycache__/*" -x "*.dist-info/*"
           cd ..
+          
+          # Check package size
+          SIZE=$(stat --format=%s embedder.zip 2>/dev/null || stat -f%z embedder.zip 2>/dev/null || echo 0)
+          echo "Embedder package size: $SIZE bytes (~$(($SIZE / 1024 / 1024)) MB)"
           
           echo "Deploying Embedder Lambda..."
           aws lambda update-function-code \

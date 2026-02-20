@@ -9,6 +9,18 @@ from typing import Optional, Tuple, List, Dict, Any
 from dataclasses import dataclass
 from openai import AzureOpenAI
 
+# LangSmith auto-instrumentation for OpenAI SDK
+try:
+    from langsmith import wrap_openai
+    from langsmith import wrappers
+    LANGSMITH_AVAILABLE = True
+    logger_init = logging.getLogger(__name__)
+    logger_init.info("✅ LangSmith available - OpenAI calls will be traced")
+except ImportError:
+    LANGSMITH_AVAILABLE = False
+    logger_init = logging.getLogger(__name__)
+    logger_init.warning("⚠️ LangSmith not installed - tracing disabled")
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,13 +99,16 @@ class AzureOpenAIFailover:
                 api_key=config.api_key,
                 api_version="2024-02-01"
             )
-            self.embedding_clients.append({
-                'client': client,
-                'deployment': config.deployment,
-                'name': f"Embedding ({config.region})"
-            })
+            # Store as tuple: (client, deployment_model, display_name)
+            display_name = f"Embedding ({config.region})"
+            self.embedding_clients.append((client, config.deployment, display_name))
+            logger.info(f"Loaded embedding client: {display_name}, model: {config.deployment}")
 
         logger.info(f"Loaded configs from SSM: {len(self.configs)} chat, {len(self.embedding_clients)} embedding")
+
+        # Debug: Log embedding clients structure
+        for idx, (client, deployment, name) in enumerate(self.embedding_clients):
+            logger.info(f"Embedding client {idx}: name={name}, deployment={deployment}, client_type={type(client).__name__}")
 
     def _init_from_dynamodb(self):
         """Initialize configurations from DynamoDB"""
@@ -212,11 +227,18 @@ class AzureOpenAIFailover:
 
     def _create_client(self, config: AzureConfig) -> AzureOpenAI:
         """Create an Azure OpenAI client from config"""
-        return AzureOpenAI(
+        client = AzureOpenAI(
             azure_endpoint=config.endpoint,
             api_key=config.api_key,
             api_version="2024-02-01"
         )
+
+        # Wrap with LangSmith if available and enabled
+        if LANGSMITH_AVAILABLE and os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true":
+            client = wrap_openai(client)
+            logger.info(f"✅ Wrapped OpenAI client with LangSmith tracing for {config.name}")
+
+        return client
 
     def _should_retry_endpoint(self, index: int) -> bool:
         """Check if enough time has passed to retry a failed endpoint"""
@@ -323,10 +345,21 @@ class AzureOpenAIFailover:
         """
         errors = []
 
+        # Debug logging
+        logger.info(f"generate_embeddings called with {len(texts)} texts")
+        logger.info(f"Available embedding clients: {len(self.embedding_clients)}")
+
         # Try dedicated embedding endpoints first
-        for client, deployment, name in self.embedding_clients:
+        for idx, embedding_tuple in enumerate(self.embedding_clients):
             try:
+                logger.info(f"Processing embedding client {idx}: {embedding_tuple}")
+                logger.info(f"Tuple length: {len(embedding_tuple)}, types: {[type(x).__name__ for x in embedding_tuple]}")
+
+                client, deployment, name = embedding_tuple
+
+                logger.info(f"Unpacked - client type: {type(client).__name__}, deployment: {deployment}, name: {name}")
                 logger.info(f"Generating embeddings with {name}")
+
                 response = client.embeddings.create(
                     input=texts,
                     model=deployment,
@@ -335,8 +368,8 @@ class AzureOpenAIFailover:
                 embeddings = [item.embedding for item in response.data]
                 return embeddings, name
             except Exception as e:
-                logger.error(f"Embedding error with {name}: {e}")
-                errors.append(f"{name}: {e}")
+                logger.error(f"Embedding error with client {idx}: {e}")
+                errors.append(f"{idx}: {e}")
                 continue
 
         # Fallback to chat endpoints for embeddings if no dedicated endpoints

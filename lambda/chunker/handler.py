@@ -11,20 +11,39 @@ Uses:
 import json
 import os
 import logging
-import boto3
-import urllib.parse
+import sys
 
+# Configure logging first
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Log Python version and environment
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Lambda environment: {os.environ.get('AWS_EXECUTION_ENV', 'unknown')}")
+
+try:
+    import boto3
+    import urllib.parse
+    logger.info("✅ Successfully imported boto3 and urllib")
+except Exception as e:
+    logger.error(f"❌ Failed to import base dependencies: {e}")
+    raise
+
 # AWS Clients
-s3 = boto3.client('s3')
-sqs = boto3.client('sqs')
-dynamodb = boto3.resource('dynamodb')
+try:
+    s3 = boto3.client('s3')
+    sqs = boto3.client('sqs')
+    dynamodb = boto3.resource('dynamodb')
+    logger.info("✅ Successfully initialized AWS clients")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize AWS clients: {e}")
+    raise
 
 # Environment variables
 EMBEDDING_QUEUE_URL = os.environ.get('EMBEDDING_QUEUE_URL', '')
 DOCUMENTS_TABLE = os.environ.get('DYNAMODB_DOCUMENTS_TABLE', 'rag-demo-documents')
+
+logger.info(f"Environment variables: EMBEDDING_QUEUE_URL={EMBEDDING_QUEUE_URL}, DOCUMENTS_TABLE={DOCUMENTS_TABLE}")
 
 
 def lambda_handler(event, context):
@@ -32,43 +51,65 @@ def lambda_handler(event, context):
     Main Lambda handler - chunks documents from S3 via SQS trigger
     Sends chunks to embedding queue for processing
     """
-    logger.info(f"Received event: {json.dumps(event)}")
+    try:
+        logger.info(f"🚀 Lambda handler started")
+        logger.info(f"Received event: {json.dumps(event)}")
+        logger.info(f"Context: {context}")
 
-    processed_count = 0
-    error_count = 0
+        processed_count = 0
+        error_count = 0
 
-    for record in event.get('Records', []):
-        try:
-            # Parse SQS message body (contains S3 event)
-            body = json.loads(record['body'])
+        records = event.get('Records', [])
+        logger.info(f"Processing {len(records)} SQS records")
 
-            for s3_record in body.get('Records', []):
-                bucket = s3_record['s3']['bucket']['name']
-                key = urllib.parse.unquote_plus(s3_record['s3']['object']['key'])
+        if not records:
+            logger.warning("⚠️ No records in event!")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'message': 'No records to process'})
+            }
 
-                logger.info(f"Processing document: s3://{bucket}/{key}")
+        for record in records:
+            try:
+                logger.info(f"Processing record: {json.dumps(record)}")
 
-                # Process the document
-                result = process_document(bucket, key)
+                # Parse SQS message body (contains S3 event)
+                body = json.loads(record['body'])
+                logger.info(f"Parsed SQS body: {json.dumps(body)}")
 
-                if result['success']:
-                    processed_count += 1
-                    logger.info(f"Successfully chunked: {key} into {result['chunks']} chunks")
-                else:
-                    error_count += 1
-                    logger.error(f"Failed to process: {key} - {result['error']}")
+                for s3_record in body.get('Records', []):
+                    bucket = s3_record['s3']['bucket']['name']
+                    key = urllib.parse.unquote_plus(s3_record['s3']['object']['key'])
 
-        except Exception as e:
-            error_count += 1
-            logger.error(f"Error processing record: {str(e)}")
+                    logger.info(f"Processing document: s3://{bucket}/{key}")
 
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'processed': processed_count,
-            'errors': error_count
-        })
-    }
+                    # Process the document
+                    result = process_document(bucket, key)
+
+                    if result['success']:
+                        processed_count += 1
+                        logger.info(f"✅ Successfully chunked: {key} into {result['chunks']} chunks")
+                    else:
+                        error_count += 1
+                        logger.error(f"❌ Failed to process: {key} - {result['error']}")
+
+            except Exception as e:
+                error_count += 1
+                logger.error(f"❌ Error processing record: {str(e)}", exc_info=True)
+
+        logger.info(f"Processing complete: {processed_count} successful, {error_count} errors")
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'processed': processed_count,
+                'errors': error_count
+            })
+        }
+
+    except Exception as e:
+        logger.error(f"❌ FATAL ERROR in lambda_handler: {str(e)}", exc_info=True)
+        raise
 
 
 def process_document(bucket: str, key: str) -> dict:
@@ -157,7 +198,7 @@ def chunk_documents(documents: list) -> list:
         chunk_overlap=200
     )
     """
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     # Create text splitter using tiktoken encoding (same as notebook)
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
@@ -185,12 +226,34 @@ def chunk_documents(documents: list) -> list:
 
 
 def generate_document_id(bucket: str, key: str) -> str:
-    """Generate a unique document ID"""
-    import hashlib
-    import time
+    """
+    Extract document ID from S3 key filename
 
-    unique_string = f"{bucket}/{key}/{time.time()}"
-    return hashlib.sha256(unique_string.encode()).hexdigest()[:16]
+    Backend creates keys like: uploads/{document_id}_{filename}
+    e.g., uploads/6058ee32-f80b-40_latest_news_file.txt
+
+    We need to extract the document_id part to match the DynamoDB record
+    """
+    import re
+
+    # Extract filename from key (removes path)
+    filename = key.split('/')[-1]
+
+    # Pattern: {document_id}_{original_filename}
+    # document_id is first 16 chars of UUID with hyphens: xxxxxxxx-xxxx-xx
+    match = re.match(r'^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{2})', filename)
+
+    if match:
+        document_id = match.group(1)
+        logger.info(f"Extracted document_id from S3 key: {document_id}")
+        return document_id
+    else:
+        # Fallback: generate from hash (legacy behavior)
+        logger.warning(f"Could not extract document_id from key: {key}, generating new ID")
+        import hashlib
+        import time
+        unique_string = f"{bucket}/{key}/{time.time()}"
+        return hashlib.sha256(unique_string.encode()).hexdigest()[:16]
 
 
 def send_chunks_to_queue(document_id: str, document_key: str, chunks: list):
@@ -234,25 +297,32 @@ def send_chunks_to_queue(document_id: str, document_key: str, chunks: list):
 
 def save_document_metadata(document_id: str, key: str, bucket: str,
                           chunk_count: int, file_size: int, status: str):
-    """Save document metadata to DynamoDB"""
+    """
+    Update document metadata in DynamoDB
+
+    The backend already created a record with status='uploaded'
+    We need to UPDATE it, not overwrite it
+    """
     try:
         table = dynamodb.Table(DOCUMENTS_TABLE)
         import time
 
-        table.put_item(Item={
-            'document_id': document_id,
-            'document_key': key,
-            'bucket': bucket,
-            'chunk_count': chunk_count,
-            'chunks_embedded': 0,
-            'file_size': file_size,
-            'status': status,
-            'created_at': int(time.time()),
-            'updated_at': int(time.time())
-        })
+        # Update existing record (don't overwrite)
+        table.update_item(
+            Key={'document_id': document_id},
+            UpdateExpression='SET chunk_count = :chunk_count, #status = :status, updated_at = :now',
+            ExpressionAttributeNames={
+                '#status': 'status'  # 'status' is a reserved word in DynamoDB
+            },
+            ExpressionAttributeValues={
+                ':chunk_count': chunk_count,
+                ':status': status,
+                ':now': int(time.time())
+            }
+        )
 
-        logger.info(f"Saved metadata for document {document_id}")
+        logger.info(f"Updated metadata for document {document_id}: {chunk_count} chunks, status={status}")
 
     except Exception as e:
-        logger.error(f"Error saving document metadata: {str(e)}")
+        logger.error(f"Error updating document metadata: {str(e)}")
         raise

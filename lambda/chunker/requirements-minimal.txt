@@ -1,0 +1,16 @@
+# Lambda Chunker Dependencies - Ultra Minimal
+# Let pip auto-resolve compatible versions
+
+# AWS SDK (available in Lambda runtime, but needed for local dev)
+boto3
+
+# LangChain - minimal for document loading and text splitting
+langchain-community
+langchain-text-splitters
+
+# PDF Processing
+pypdf
+
+# Tiktoken for token-based chunking
+tiktoken
+

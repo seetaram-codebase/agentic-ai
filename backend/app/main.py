@@ -4,13 +4,16 @@ FastAPI Main Application - RAG Demo API
 import os
 import tempfile
 import logging
-from typing import Optional
+import uuid
+from typing import Optional, List
 from contextlib import asynccontextmanager
+from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import boto3
 
 # Load environment variables
 load_dotenv()
@@ -22,11 +25,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# AWS Configuration
+USE_S3_UPLOAD = os.getenv('USE_S3_UPLOAD', 'true').lower() == 'true'
+S3_BUCKET = os.getenv('S3_BUCKET', '')
+AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+DYNAMODB_DOCUMENTS_TABLE = os.getenv('DYNAMODB_DOCUMENTS_TABLE', 'rag-demo-documents')
+
+# Initialize AWS clients
+s3_client = None
+dynamodb_client = None
+if USE_S3_UPLOAD:
+    try:
+        s3_client = boto3.client('s3', region_name=AWS_REGION)
+        dynamodb_client = boto3.resource('dynamodb', region_name=AWS_REGION)
+        logger.info(f"AWS clients initialized (S3 bucket: {S3_BUCKET})")
+    except Exception as e:
+        logger.warning(f"Failed to initialize AWS clients: {e}")
+        USE_S3_UPLOAD = False
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     logger.info("Starting RAG Demo API...")
+    logger.info("App started successfully - components will initialize on first use")
     yield
     logger.info("Shutting down RAG Demo API...")
 
@@ -63,10 +85,30 @@ class QueryResponse(BaseModel):
 
 class UploadResponse(BaseModel):
     filename: str
-    chunks_created: int
     document_id: str
-    provider: str
     status: str
+    message: str
+    s3_key: str
+    bucket: str
+
+
+class DocumentStatus(BaseModel):
+    document_id: str
+    document_key: str
+    status: str  # 'uploaded', 'chunked', 'embedding', 'completed', 'error'
+    chunk_count: int
+    chunks_embedded: int
+    progress: int  # 0-100
+    created_at: int
+    updated_at: int
+
+
+class DocumentListItem(BaseModel):
+    document_id: str
+    document_key: str
+    status: str
+    chunk_count: int
+    created_at: int
 
 
 class HealthResponse(BaseModel):
@@ -142,9 +184,16 @@ async def readiness_check():
 @app.post("/upload", response_model=UploadResponse)
 async def upload_document(file: UploadFile = File(...)):
     """
-    Upload a document for processing.
+    Upload a document for async processing via S3 + Lambda.
 
     Supports PDF and TXT files.
+
+    **Processing Flow**:
+    1. File uploaded to S3 (uploads/ folder)
+    2. S3 event triggers SQS notification
+    3. Chunker Lambda processes document
+    4. Embedder Lambda generates embeddings
+    5. Check status via /documents/{id}/status
     """
     # Validate file type
     allowed_extensions = {'.pdf', '.txt'}
@@ -156,24 +205,62 @@ async def upload_document(file: UploadFile = File(...)):
             detail=f"Unsupported file type. Allowed: {allowed_extensions}"
         )
 
+    # Ensure S3 is configured
+    if not USE_S3_UPLOAD or not s3_client:
+        raise HTTPException(
+            status_code=503,
+            detail="S3 upload not configured. Set USE_S3_UPLOAD=true and configure AWS credentials."
+        )
+
     try:
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+        # Generate unique document ID
+        document_id = str(uuid.uuid4())[:16]
+        s3_key = f"uploads/{document_id}_{file.filename}"
 
-        # Process the document
-        rag = get_rag()
-        result = rag.process_file(tmp_path, file.filename)
+        # Upload file to S3
+        content = await file.read()
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_key,
+            Body=content,
+            ContentType=file.content_type or 'application/octet-stream',
+            Metadata={
+                'original_filename': file.filename,
+                'document_id': document_id
+            }
+        )
 
-        # Clean up temp file
-        os.unlink(tmp_path)
+        logger.info(f"Uploaded {file.filename} to S3: s3://{S3_BUCKET}/{s3_key}")
 
-        return UploadResponse(**result)
+        # Create initial document record in DynamoDB
+        if dynamodb_client:
+            table = dynamodb_client.Table(DYNAMODB_DOCUMENTS_TABLE)
+            timestamp = int(datetime.utcnow().timestamp())
+
+            table.put_item(Item={
+                'document_id': document_id,
+                'document_key': s3_key,
+                'bucket': S3_BUCKET,
+                'original_filename': file.filename,
+                'status': 'uploaded',
+                'chunk_count': 0,
+                'chunks_embedded': 0,
+                'file_size': len(content),
+                'created_at': timestamp,
+                'updated_at': timestamp
+            })
+
+        return UploadResponse(
+            filename=file.filename,
+            document_id=document_id,
+            status='processing',
+            message=f'Document uploaded and queued for processing. Check status at /documents/{document_id}/status',
+            s3_key=s3_key,
+            bucket=S3_BUCKET
+        )
 
     except Exception as e:
-        logger.error(f"Error processing upload: {e}")
+        logger.error(f"Error uploading to S3: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -218,17 +305,104 @@ async def get_stats():
 
 
 @app.get("/documents")
-async def list_documents():
-    """List ingested documents (from vector store stats)"""
+async def list_documents(limit: int = Query(100, le=500)) -> List[DocumentListItem]:
+    """
+    List all documents from DynamoDB.
+
+    Returns documents sorted by creation date (newest first).
+    """
+    if not dynamodb_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Document listing requires DynamoDB. Configure AWS credentials and DynamoDB table."
+        )
+
     try:
-        rag = get_rag()
-        stats = rag.get_stats()
-        return {
-            "document_count": stats["vector_store"].get("document_count", 0),
-            "vector_store_type": stats["vector_store"].get("type", "unknown")
-        }
+        table = dynamodb_client.Table(DYNAMODB_DOCUMENTS_TABLE)
+        response = table.scan(Limit=limit)
+
+        items = response.get('Items', [])
+        # Sort by created_at descending
+        items.sort(key=lambda x: x.get('created_at', 0), reverse=True)
+
+        documents = [
+            DocumentListItem(
+                document_id=item['document_id'],
+                document_key=item.get('document_key', ''),
+                status=item.get('status', 'unknown'),
+                chunk_count=item.get('chunk_count', 0),
+                created_at=item.get('created_at', 0)
+            )
+            for item in items
+        ]
+
+        logger.info(f"Listed {len(documents)} documents")
+        return documents
+
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/documents/{document_id}/status", response_model=DocumentStatus)
+async def get_document_status(document_id: str):
+    """
+    Get processing status of a document.
+
+    Use this to check if a document has completed processing.
+
+    **Status values**:
+    - `uploaded`: File uploaded to S3, waiting for chunking
+    - `chunked`: Document chunked, waiting for embedding
+    - `embedding`: Embeddings being generated
+    - `completed`: All chunks embedded, ready for querying
+    - `error`: Processing failed
+    """
+    if not dynamodb_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Status tracking requires DynamoDB. Configure AWS credentials and DynamoDB table."
+        )
+
+    try:
+        table = dynamodb_client.Table(DYNAMODB_DOCUMENTS_TABLE)
+        response = table.get_item(Key={'document_id': document_id})
+
+        if 'Item' not in response:
+            raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+
+        item = response['Item']
+        chunk_count = item.get('chunk_count', 0)
+        chunks_embedded = item.get('chunks_embedded', 0)
+
+        # Calculate progress
+        if chunk_count > 0:
+            progress = int((chunks_embedded / chunk_count) * 100)
+        else:
+            progress = 0
+
+        # Determine status
+        status = item.get('status', 'unknown')
+        if status == 'chunked' and chunks_embedded == chunk_count and chunk_count > 0:
+            status = 'completed'
+        elif status == 'chunked' and chunks_embedded > 0:
+            status = 'embedding'
+
+        return DocumentStatus(
+            document_id=document_id,
+            document_key=item.get('document_key', ''),
+            status=status,
+            chunk_count=chunk_count,
+            chunks_embedded=chunks_embedded,
+            progress=progress,
+            created_at=item.get('created_at', 0),
+            updated_at=item.get('updated_at', 0)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -242,6 +416,49 @@ async def clear_documents():
     except Exception as e:
         logger.error(f"Error clearing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/embeddings")
+async def store_embedding_api(
+    document_id: str,
+    chunk_index: int,
+    text: str,
+    embedding: List[float],
+    metadata: dict = {}
+):
+    """
+    Store embedding in vector database.
+
+    Called by Embedder Lambda to store embeddings.
+    Lambda can't run ChromaDB (too large), so it calls this API.
+    """
+    try:
+        vector_store = get_vector_store()
+
+        # Store in vector database (ChromaDB/Pinecone)
+        vector_store.add_documents(
+            texts=[text],
+            embeddings=[embedding],
+            metadatas=[{
+                'document_id': document_id,
+                'chunk_index': chunk_index,
+                **metadata
+            }],
+            ids=[f"{document_id}_{chunk_index}"]
+        )
+
+        logger.info(f"Stored embedding for document {document_id}, chunk {chunk_index}")
+        return {"status": "success", "chunk_index": chunk_index, "document_id": document_id}
+
+    except Exception as e:
+        logger.error(f"Error storing embedding: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_vector_store():
+    """Get vector store instance"""
+    from .vector_store import get_vector_store as _get_vector_store
+    return _get_vector_store()
 
 
 # Demo endpoints for failover demonstration

@@ -62,7 +62,22 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "DYNAMODB_DOCUMENTS_TABLE", value = aws_dynamodb_table.documents.name },
         { name = "S3_BUCKET", value = aws_s3_bucket.documents.id },
         { name = "SQS_QUEUE_URL", value = aws_sqs_queue.document_chunking.url },
-        { name = "AWS_REGION", value = var.aws_region }
+        { name = "AWS_REGION", value = var.aws_region },
+        # Pinecone configuration (API key from SSM)
+        { name = "PINECONE_API_KEY_PARAM", value = aws_ssm_parameter.pinecone_api_key.name },
+        { name = "PINECONE_INDEX", value = var.pinecone_index },
+        { name = "USE_PINECONE", value = var.use_pinecone ? "true" : "false" },
+        # LangSmith observability
+        { name = "LANGCHAIN_TRACING_V2", value = var.langsmith_enabled ? "true" : "false" },
+        { name = "LANGCHAIN_PROJECT", value = var.langsmith_project },
+        { name = "LANGCHAIN_ENDPOINT", value = "https://api.smith.langchain.com" }
+      ]
+
+      secrets = [
+        {
+          name      = "LANGCHAIN_API_KEY"
+          valueFrom = aws_ssm_parameter.langsmith_api_key.arn
+        }
       ]
 
       logConfiguration = {
@@ -75,11 +90,11 @@ resource "aws_ecs_task_definition" "backend" {
       }
 
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+        command     = ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
         interval    = 30
-        timeout     = 5
+        timeout     = 10
         retries     = 3
-        startPeriod = 60
+        startPeriod = 120
       }
     }
   ])
