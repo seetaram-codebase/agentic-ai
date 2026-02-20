@@ -108,7 +108,6 @@ function App() {
       for (const file of acceptedFiles) {
         setUploadStatus(`Uploading ${file.name}...`);
         const result: UploadResponse = await api.uploadFile(file);
-        setUploadStatus(`✅ ${file.name}: ${result.status} - ${result.message}`);
         console.log('📤 Upload response:', result);
 
         // Add to processing list for status tracking
@@ -120,6 +119,9 @@ function App() {
           });
         }
       }
+
+      // Clear upload status after all files uploaded
+      setUploadStatus(`✅ ${acceptedFiles.length} file(s) uploaded successfully`);
 
       // Add new documents to processing list
       setProcessingDocs(prev => [...prev, ...newProcessingDocs]);
@@ -214,9 +216,13 @@ function App() {
           )}
         </div>
         <div className="stats-row">
-          <span>📄 Documents: <strong>{documentCount}</strong> chunks indexed</span>
-          {uploadStatus && <span className="upload-status">{uploadStatus}</span>}
+          <span>📊 Vector Store: <strong>{documentCount}</strong> chunks indexed</span>
         </div>
+        {uploadStatus && (
+          <div className="upload-status-message">
+            {uploadStatus}
+          </div>
+        )}
         {uploading && <div className="loading-bar"></div>}
       </section>
 

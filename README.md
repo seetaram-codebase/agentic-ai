@@ -1,226 +1,103 @@
-# RAG Demo - Developer Week
+# RAG Knowledge Assistant - Developer Week 2026
 
-A scalable RAG (Retrieval-Augmented Generation) application demonstrating enterprise-grade document intelligence with Azure OpenAI failover.
+Enterprise-grade Retrieval-Augmented Generation (RAG) system with multi-cloud deployment, real-time document processing, and intelligent failover capabilities.
 
-## 🎯 Features
+---
 
-- **Document Ingestion**: Upload PDF/TXT files for processing
-- **Vector Storage**: Chroma (local) or Pinecone (cloud)
-- **Azure OpenAI**: Multi-subscription failover support
-- **Electron UI**: Modern desktop application
-- **Demo Ready**: Built-in failover trigger for demonstrations
+## 🏗️ Architecture Overview
 
-## 🚀 Quick Start (2 Hours MVP)
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- Azure OpenAI subscription(s)
-
-### 1. Clone and Setup
-
-```powershell
-cd C:\Users\seeta\IdeaProjects\agentic-ai
-
-# Copy environment template
-cp backend\.env.example backend\.env
-
-# Edit .env with your Azure OpenAI credentials
-notepad backend\.env
+### **Document Ingestion Pipeline**
+```
+Upload (Electron UI) → Backend API → S3 → SQS → Chunker Lambda → SQS → Embedder Lambda → Pinecone
+                                      ↓                ↓                       ↓
+                                  DynamoDB         DynamoDB                DynamoDB
+                                (uploaded)        (chunked)               (completed)
 ```
 
-### 2. Configure Azure OpenAI
-
-Edit `backend\.env`:
-```env
-AZURE_OPENAI_ENDPOINT_1=https://your-resource.openai.azure.com/
-AZURE_OPENAI_KEY_1=your-api-key
-AZURE_OPENAI_DEPLOYMENT_1=gpt-4
-
-# Optional: Failover endpoint
-AZURE_OPENAI_ENDPOINT_2=https://your-backup-resource.openai.azure.com/
-AZURE_OPENAI_KEY_2=your-backup-key
-AZURE_OPENAI_DEPLOYMENT_2=gpt-4
+### **Inference Pipeline**
+```
+Question (Electron UI) → Backend API → Pinecone (vector search) → Azure OpenAI (GPT-4) → Response
+                                            ↓                              ↓
+                                    Retrieve relevant chunks      Generate answer with context
+                                                                  (Multi-region failover)
 ```
 
-### 3. Install Dependencies
+---
 
-```powershell
+## 🌐 End-to-End Infrastructure
+
+| Component | Platform | Link |
+|-----------|----------|------|
+| **Infrastructure** | Terraform Cloud | [Workspace](https://app.terraform.io/app/agentic-ai-org/workspaces/agentic-ai-rag-workspace/runs) |
+| **CI/CD** | GitHub Actions | `.github/workflows/` |
+| **AI/ML** | Azure OpenAI | [Resource Usage](https://ai.azure.com/observability/resourceUsage?wsid=/subscriptions/ed8ae890-acf2-41b8-b5df-f2576f8168db/resourceGroups/developer-week/providers/Microsoft.CognitiveServices/accounts/my-openai-us-east-1&tid=08ff7ffa-252f-450e-8351-d9a86602a790&selectedDeployments=/subscriptions/ed8ae890-acf2-41b8-b5df-f2576f8168db/resourceGroups/developer-week/providers/Microsoft.CognitiveServices/accounts/my-openai-us-east-1/deployments/gpt-4o-mini) |
+| **Vector Store** | Pinecone | [Index Browser](https://app.pinecone.io/organizations/-Olo5gbrEffVec7geolk/projects/047b8708-0520-49de-bc71-4fce13e5468d/indexes/rag-demo/browser) |
+| **Compute** | AWS ECS + Lambda | EC2: `http://54.89.155.20:8000` |
+
+---
+
+## 📋 Quick Start
+
+### Local Development
+```bash
 # Backend
 cd backend
 pip install -r requirements.txt
+uvicorn app.main:app --reload
 
-# Frontend
-cd ..\electron-ui
-npm install
-```
-
-### 4. Start the Demo
-
-```powershell
-# Terminal 1: Backend
-cd backend
-uvicorn app.main:app --reload --port 8000
-
-# Terminal 2: Electron UI
+# UI
 cd electron-ui
+npm install
 npm run dev
 ```
 
-### 5. Use the Demo
-
-1. Open the Electron app (launches automatically)
-2. Drag & drop PDF/TXT files to upload
-3. Ask questions about your documents
-4. Click "Trigger Failover" to demo failover capability
-
-## 🔐 Pinecone Integration
-
-This application uses **Pinecone** as the cloud vector database for storing document embeddings.
-
-### How Lambda Reads Pinecone API Key
-
-Lambda functions securely read the Pinecone API key from **AWS Systems Manager (SSM) Parameter Store** at runtime:
-
-```
-Terraform → SSM Parameter (placeholder)
-    ↓
-You Update → SSM with real API key (one-time)
-    ↓
-Lambda Env Var → Parameter NAME (not value)
-    ↓
-Lambda Runtime → boto3.client('ssm').get_parameter()
-    ↓
-AWS SSM/KMS → Decrypt and return API key
-    ↓
-Pinecone Client → Initialized with API key
-```
-
-**Security Benefits:**
-- ✅ No secrets in code or Git
-- ✅ Encrypted at rest with KMS
-- ✅ IAM-based access control
-- ✅ Easy rotation without code changes
-
-**Quick Setup:**
-```powershell
-# 1. Deploy infrastructure
-cd infrastructure/terraform
+### Production Deployment
+```bash
+# Terraform (automated via Terraform Cloud)
+terraform plan
 terraform apply
 
-# 2. Update SSM with your Pinecone API key
-aws ssm put-parameter `
-  --name "/rag-demo/pinecone/api-key" `
-  --value "pc-YOUR-API-KEY" `
-  --type "SecureString" `
-  --overwrite
-
-# 3. Verify
-aws logs tail /aws/lambda/rag-demo-embedder --follow
+# GitHub Actions (automated on push)
+git push origin main
 ```
 
-**📚 Documentation:**
-- **[PINECONE-HOW-IT-WORKS.md](docs/PINECONE-HOW-IT-WORKS.md)** - Complete guide
-- **[PINECONE-API-KEY-QUICKREF.md](docs/PINECONE-API-KEY-QUICKREF.md)** - Quick reference
-- **[PINECONE-DOCS-INDEX.md](docs/PINECONE-DOCS-INDEX.md)** - All Pinecone docs
+---
 
-## 📁 Project Structure
+## 📚 Documentation
 
-```
-agentic-ai/
-├── .github/
-│   └── workflows/
-│       ├── backend-ci.yml       # Backend lint, test, build
-│       ├── frontend-ci.yml      # Frontend lint, build
-│       ├── deploy-ecs.yml       # Deploy to AWS ECS
-│       ├── deploy-lambda.yml    # Deploy Lambda functions
-│       ├── build-electron.yml   # Build Electron for Win/Mac/Linux
-│       └── infrastructure.yml   # Terraform plan/apply
-├── backend/                     # FastAPI backend
-│   ├── app/
-│   │   ├── main.py             # API endpoints
-│   │   ├── azure_openai.py     # Failover client
-│   │   ├── vector_store.py     # Chroma/Pinecone
-│   │   ├── rag_engine.py       # RAG logic
-│   │   └── dynamodb_config.py  # DynamoDB config store
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── .env.example
-├── lambda/                      # AWS Lambda functions
-│   ├── chunker/                # Document chunking
-│   │   ├── handler.py
-│   │   └── requirements.txt
-│   └── embedder/               # Embedding generation
-│       ├── handler.py          # Reads Pinecone key from SSM
-│       └── requirements.txt
-├── electron-ui/                 # Electron frontend
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── api/client.ts
-│   │   └── styles.css
-│   ├── main.js
-│   └── package.json
-├── infrastructure/              # Infrastructure as Code
-│   └── terraform/
-│       ├── lambda.tf           # Lambda configuration
-│       ├── ssm.tf              # SSM parameters (Pinecone key)
-│       ├── ecs.tf              # ECS, ECR
-│       └── s3.tf               # S3, SQS, DynamoDB
-├── docs/                        # Documentation
-│   ├── PINECONE-HOW-IT-WORKS.md     # Pinecone integration guide
-│   ├── PINECONE-DOCS-INDEX.md       # Pinecone docs index
-│   ├── 00-overview.md
-│   ├── SETUP-REQUIREMENTS.md
-│   └── architecture/
-├── sample-docs/                 # Test documents
-└── scripts/                     # Utility scripts
-```
+| Topic | Document |
+|-------|----------|
+| **Architecture** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| **Document Status** | [HOW-TO-CHECK-DOCUMENT-STATUS.md](HOW-TO-CHECK-DOCUMENT-STATUS.md) |
+| **Local Setup** | [LOCAL-QUICK-START.md](LOCAL-QUICK-START.md) |
+| **Deployment** | [DEPLOYMENT-READY.md](DEPLOYMENT-READY.md) |
+| **Pinecone Setup** | [docs/PINECONE-COMPLETE-FLOW.md](docs/PINECONE-COMPLETE-FLOW.md) |
+| **LangSmith Tracing** | [LANGSMITH-AUTO-TRACING.md](LANGSMITH-AUTO-TRACING.md) |
+| **CI/CD** | [docs/CI-CD-SUMMARY.md](docs/CI-CD-SUMMARY.md) |
 
-## 💰 Cost Estimation
+---
 
-| Service | Per Hour |
-|---------|----------|
-| AWS (Lambda, S3, SQS) | ~$0.10 |
-| Azure OpenAI (GPT-4) | ~$0.50-2.00 |
-| Pinecone (Free Tier) | $0.00 |
-| **Total** | **~$0.60-2.10/hr** |
+## 🔧 Technology Stack
 
-See [cost-estimation.md](docs/cost-estimation.md) for details.
+**Backend:** FastAPI, LangChain, Azure OpenAI  
+**Ingestion:** AWS Lambda, SQS, S3  
+**Vector DB:** Pinecone (1536-dim embeddings)  
+**Tracking:** DynamoDB, LangSmith  
+**UI:** Electron, React, TypeScript  
+**Infrastructure:** Terraform, GitHub Actions, AWS ECS
 
-## 🔄 Failover Architecture
+---
 
-```
-┌──────────────┐     ┌──────────────┐
-│   Primary    │     │  Secondary   │
-│  Azure OpenAI│ ──▶ │  Azure OpenAI│
-│  (East US)   │     │  (West US)   │
-└──────────────┘     └──────────────┘
-       │                    │
-       └────────┬───────────┘
-                │
-         Automatic Failover
-         on 429/500/Timeout
-```
+## 🚀 Key Features
 
-## 📋 API Endpoints
+✅ **Asynchronous Processing** - Lambda-based chunking and embedding  
+✅ **Real-time Status Tracking** - DynamoDB + polling UI  
+✅ **Multi-region Failover** - Azure OpenAI US-East ↔ EU-West  
+✅ **Observability** - LangSmith auto-tracing, CloudWatch logs  
+✅ **Production Ready** - ECS deployment, health checks, auto-scaling
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/upload` | Upload document |
-| POST | `/query` | Query documents |
-| GET | `/stats` | Get system stats |
-| GET | `/demo/health-status` | Check endpoint health |
-| POST | `/demo/trigger-failover` | Trigger failover (demo) |
+---
 
-## 🎬 Demo Day
+## 📞 Support
 
-See [06-phase6-demo-preparation.md](docs/06-phase6-demo-preparation.md) for:
-- Demo script
-- Recording setup
-- Troubleshooting guide
-- Emergency commands
-
-## 📄 License
-
-MIT License - Built for Developer Week 2026
+See [docs/](docs/) for detailed guides on setup, deployment, and troubleshooting.

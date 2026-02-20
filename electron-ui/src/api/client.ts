@@ -134,3 +134,15 @@ export const api = {
     return response.data;
   }
 };
+
+export interface DocumentStatus {
+  document_id: string;
+  document_key: string;
+  status: string; // 'uploaded', 'chunked', 'embedding', 'completed', 'error'
+  chunk_count: number;
+  chunks_embedded: number;
+  progress: number; // 0-100
+  created_at: number;
+  updated_at: number;
+}
+
